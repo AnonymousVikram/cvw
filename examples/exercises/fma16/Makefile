@@ -14,3 +14,4 @@ all:	$(PROGS)
 
 clean:
 	rm -f $(PROGS)
+	rm -rf ./work
