@@ -35,9 +35,9 @@ module mul #(parameter XLEN) (
   output logic [XLEN*2-1:0]   ProdM                           // double-widthproduct
 );
 
-    logic [XLEN*2-1:0]  PP1M, PP2M, PP3M, PP4M;               // registered partial proudcts
+    logic [XLEN*2-1:0]  PP1M;
 
-    logic [XLEN*2-1:0]  PP1E, PP2E, PP3E, PP4E;               // unregistered partial products
+    logic [XLEN*2-1:0]  PP1E;
     logic Am, Bm, Pm; // MSB of A and B, and P
     logic [XLEN-2:0]  Aprime, Bprime, Pa, Pb; // A and B with MSB removed, and PA and PB
     logic [XLEN*2-1:0]  Pprime; // product of A and B with MSB removed
@@ -58,34 +58,25 @@ module mul #(parameter XLEN) (
       // 001: signed/signed
       // 010: signed/unsigned
 
-      PP1E = Pprime;
       case (Funct3E)
         3'b001: begin
-          PP2E = {2'b00, ~Pa, {(XLEN-1){1'b0}}};
-          PP3E = {2'b00, ~Pb, {(XLEN-1){1'b0}}};
-          PP4E = {1'b1, Pm, {(XLEN-3){1'b0}}, 1'b1, {{(XLEN){1'b0}}}};
+          PP1E = Pprime + {2'b00, ~Pa, {(XLEN-1){1'b0}}} + {2'b00, ~Pb, {(XLEN-1){1'b0}}} + {1'b1, Pm, {(XLEN-3){1'b0}}, 1'b1, {{(XLEN){1'b0}}}};
         end
         3'b010: begin
-          PP2E = {2'b00, Pa, {(XLEN-1){1'b0}}};
-          PP3E = {2'b00, ~Pb, {(XLEN-1){1'b0}}};
-          PP4E = {1'b1, ~Pm, {(XLEN-2){1'b0}}, 1'b1, {{(XLEN-1){1'b0}}}};
+          PP1E = Pprime + {2'b00, Pa, {(XLEN-1){1'b0}}} + {2'b00, ~Pb, {(XLEN-1){1'b0}}} + {1'b1, ~Pm, {(XLEN-2){1'b0}}, 1'b1, {{(XLEN-1){1'b0}}}};
         end
         default: begin
-          PP2E = {2'b00, Pa, {(XLEN-1){1'b0}}};
-          PP3E = {2'b00, Pb, {(XLEN-1){1'b0}}};
-          PP4E = {1'b0, Pm, {(XLEN*2-2){1'b0}}};
+          PP1E = Pprime + {2'b00, Pa, {(XLEN-1){1'b0}}} + {2'b00, Pb, {(XLEN-1){1'b0}}} + {1'b0, Pm, {(XLEN*2-2){1'b0}}};
         end
       endcase
     end
 
+  ///////////////////////////////
   // Memory Stage: Sum partial proudcts
   //////////////////////////////
 
-  flopenrc #(XLEN*2) PP1Reg(clk, reset, FlushM, ~StallM, PP1E, PP1M); 
-  flopenrc #(XLEN*2) PP2Reg(clk, reset, FlushM, ~StallM, PP2E, PP2M); 
-  flopenrc #(XLEN*2) PP3Reg(clk, reset, FlushM, ~StallM, PP3E, PP3M); 
-  flopenrc #(XLEN*2) PP4Reg(clk, reset, FlushM, ~StallM, PP4E, PP4M); 
+  flopenrc #(XLEN*2) PP2Reg(clk, reset, FlushM, ~StallM, PP1E, PP1M); 
 
   // add up partial products; this multi-input add implies CSAs and a final CPA
-  assign ProdM = PP1M + PP2M + PP3M + PP4M; //ForwardedSrcAE * ForwardedSrcBE;
+  assign ProdM = PP1M;
  endmodule
