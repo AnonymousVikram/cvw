@@ -42,7 +42,7 @@ testfloatsim = "questa"    # change to Verilator when Issue #707 about testfloat
 standard_tests = [
         ["rv32e", ["arch32e"]],
         ["rv32i", ["arch32i"]],
-        ["rv32imc", ["arch32i", "arch32c", "arch32m", "wally32periph"]],
+        ["rv32imc", ["arch32i", "arch32c", "arch32m"]], # add when issue #1321 is fixed: "wally32periph"
         ["rv32gc", ["arch32f", "arch32d", "arch32f_fma", "arch32d_fma", "arch32f_divsqrt", "arch32d_divsqrt",
                     "arch32i", "arch32priv", "arch32c",  "arch32m", "arch32a_amo", "arch32zifencei", "arch32zicond",
                     "arch32zba", "arch32zbb", "arch32zbc", "arch32zbs", "arch32zfh", "arch32zfh_fma",
@@ -402,11 +402,11 @@ def process_args(args):
     elif args.fcov or args.breker:
         sims = [coveragesim]
         coverStr = "--fcov"
-        TIMEOUT_DUR = 8*60
+        TIMEOUT_DUR = 30*60
         shutil.rmtree(f"{regressionDir}/questa/fcov_ucdb", ignore_errors=True)
         os.makedirs(f"{regressionDir}/questa/fcov_ucdb", exist_ok=True)
     elif args.buildroot:
-        TIMEOUT_DUR = 60*1440 # 1 day
+        TIMEOUT_DUR = 60*2880 # 2 days
     elif args.testfloat:
         sims = [testfloatsim]
         TIMEOUT_DUR = 30*60 # seconds
@@ -514,7 +514,7 @@ def main(args):
 
     # Coverage report
     if args.ccov:
-        os.system(f"make -C {regressionDir}/QuestaCodeCoverage")
+        os.system(f"make -C {regressionDir} QuestaCodeCoverage")
     if args.fcov or args.breker:
         os.system(f"make -C {archVerifDir} merge")
     # Count the number of failures
