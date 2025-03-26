@@ -149,6 +149,7 @@ fi
 export PATH=$PATH:$RISCV/bin:/usr/bin
 export PKG_CONFIG_PATH=$RISCV/lib64/pkgconfig:$RISCV/lib/pkgconfig:$RISCV/share/pkgconfig:$RISCV/lib/x86_64-linux-gnu/pkgconfig:$PKG_CONFIG_PATH
 
+# wget retry on host error flag not available with older wget on RHEL 8
 if (( RHEL_VERSION != 8 )); then
     retry_on_host_error="--retry-on-host-error"
 fi
@@ -188,6 +189,11 @@ if [ "$ROOT" == true ]; then
     source "${dir}"/wally-package-install.sh
 else
     source "${dir}"/wally-package-install.sh --check
+fi
+
+# Older version of git defaults to protocol version incompatible with riscv-gnu-toolchain
+if (( UBUNTU_VERSION == 20 )); then
+    git config --global protocol.version 2
 fi
 
 # Enable newer version of gcc for older distros (required for QEMU/Verilator)
@@ -313,6 +319,9 @@ cd "$RISCV"
 if git_check "riscv-gnu-toolchain" "https://github.com/riscv/riscv-gnu-toolchain" "$RISCV/riscv-gnu-toolchain/stamps/build-gcc-newlib-stage2"; then
     cd "$RISCV"/riscv-gnu-toolchain
     git reset --hard && git clean -f && git checkout master && git pull && git submodule update
+    # sed commands needed to fix broken shallow cloning of submodules
+    sed -i '/shallow = true/d' .gitmodules
+    sed -i 's/--depth 1//g' Makefile.in
     ./configure --prefix="${RISCV}" --with-multilib-generator="rv32e-ilp32e--;rv32i-ilp32--;rv32im-ilp32--;rv32iac-ilp32--;rv32imac-ilp32--;rv32imafc-ilp32f--;rv32imafdc-ilp32d--;rv64i-lp64--;rv64ic-lp64--;rv64iac-lp64--;rv64imac-lp64--;rv64imafdc-lp64d--;rv64im-lp64--;"
     make -j "${NUM_THREADS}" 2>&1 | logger; [ "${PIPESTATUS[0]}" == 0 ]
     if [ "$clean" ]; then
@@ -446,10 +455,9 @@ STATUS="riscv-sail-model"
 if git_check "sail-riscv" "https://github.com/riscv/sail-riscv.git" "$RISCV/bin/riscv_sim_rv32d"; then
     cd "$RISCV"/sail-riscv
     git reset --hard && git clean -f && git checkout master && git pull
-    cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -GNinja 2>&1 | logger; [ "${PIPESTATUS[0]}" == 0 ]
+    cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX="$RISCV" -GNinja 2>&1 | logger; [ "${PIPESTATUS[0]}" == 0 ]
     cmake --build build 2>&1 | logger; [ "${PIPESTATUS[0]}" == 0 ]
-    cp -f build/c_emulator/riscv_sim_rv64d "$RISCV"/bin/riscv_sim_rv64d
-    cp -f build/c_emulator/riscv_sim_rv32d "$RISCV"/bin/riscv_sim_rv32d
+    cmake --install build 2>&1 | logger; [ "${PIPESTATUS[0]}" == 0 ]
     if [ "$clean" ]; then
         cd "$RISCV"
         rm -rf sail-riscv
