@@ -1,7 +1,7 @@
 module multiplier (
     input logic [9:0] x,
     y,
-    output logic [9:0] result,
+    output logic [21:0] result,
     output logic resultShifted
 );
 
@@ -15,7 +15,7 @@ module multiplier (
   genvar i;
   generate
     for (i = 0; i < 11; i = i + 1) begin : stage
-      assign partials[i] = (adjY[i] ? adjX : 0) << i;
+      assign partials[i] = (adjY[i] ? {11'b0, adjX} : 0) << i;
     end
   endgenerate
 
@@ -23,7 +23,7 @@ module multiplier (
                   partials[4] + partials[5] + partials[6] + partials[7] + 
                   partials[8] + partials[9] + partials[10];
 
-  assign result = partialsSum[21] ? partialsSum[20:11] : partialsSum[19:10];
+  assign result = partialsSum;
   assign resultShifted = partialsSum[21];
 
 endmodule
