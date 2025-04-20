@@ -74,9 +74,14 @@ module mmu import cvw::*;  #(parameter cvw_t P,
   logic                        TLBPageFault;             // Page fault from TLB
   logic                        ReadNoAmoAccessM;         // Read that is not part of atomic operation causes Load faults.  Otherwise StoreAmo faults
   logic [1:0]                  PBMemoryType;             // PBMT field of PTE during TLB hit, or 00 otherwise
-  logic                        AmoMisalignedCausesAccessFaultM; // Misaligned AMO is not handled by hardware even with ZICCLSM, so it throws an access fault instead of misaligned with ZICCLSM
-  logic                        AmoAccessM;               // AMO access detected when ReadAccessM and WriteAccessM are simultaneously asserted
+  logic                        AtomicMisalignedCausesAccessFaultM; // Misaligned atomics are not handled by hardware even with ZICCLSM, so it throws an access fault instead of misaligned with ZICCLSM
+  logic [1:0]                  EffectivePrivilegeModeW;  // Effective privilege mode accounting for MPRV
   
+
+  // Get Effective Privilege Mode
+  // for DLB, when mstatus.MPRV=1, use mstatus.MPP rather than the current privilege mode
+  assign EffectivePrivilegeModeW = IMMU ? PrivilegeModeW : (STATUS_MPRV ? STATUS_MPP : PrivilegeModeW);
+
   // only instantiate TLB if Virtual Memory is supported
   if (P.VIRTMEM_SUPPORTED) begin:tlb
     logic ReadAccess, WriteAccess;
@@ -87,7 +92,7 @@ module mmu import cvw::*;  #(parameter cvw_t P,
           .SATP_MODE(SATP_REGW[P.XLEN-1:P.XLEN-P.SVMODE_BITS]),
           .SATP_ASID(SATP_REGW[P.ASID_BASE+P.ASID_BITS-1:P.ASID_BASE]),
           .VAdr(VAdr[P.XLEN-1:0]), .STATUS_MXR, .STATUS_SUM, .STATUS_MPRV, .STATUS_MPP, .ENVCFG_PBMTE, .ENVCFG_ADUE,
-          .PrivilegeModeW, .ReadAccess, .WriteAccess, .CMOpM,
+          .EffectivePrivilegeModeW, .ReadAccess, .WriteAccess, .CMOpM,
           .DisableTranslation, .PTE, .PageTypeWriteVal,
           .TLBWrite, .TLBFlush, .TLBPAdr, .TLBMiss,
           .Translate, .TLBPageFault, .UpdateDA, .PBMemoryType);
@@ -116,7 +121,7 @@ module mmu import cvw::*;  #(parameter cvw_t P,
     .PMAInstrAccessFaultF, .PMALoadAccessFaultM, .PMAStoreAmoAccessFaultM);
  
   if (P.PMP_ENTRIES > 0) begin : pmp
-    pmpchecker #(P) pmpchecker(.PhysicalAddress, .PrivilegeModeW,
+    pmpchecker #(P) pmpchecker(.PhysicalAddress, .EffectivePrivilegeModeW,
       .PMPCFG_ARRAY_REGW, .PMPADDR_ARRAY_REGW,
       .ExecuteAccessF, .WriteAccessM, .ReadAccessM, .Size, .CMOpM, 
       .PMPInstrAccessFaultF, .PMPLoadAccessFaultM, .PMPStoreAmoAccessFaultM);
@@ -127,7 +132,6 @@ module mmu import cvw::*;  #(parameter cvw_t P,
   end
 
   assign ReadNoAmoAccessM  = ReadAccessM & ~WriteAccessM;// AMO causes StoreAmo rather than Load fault
-  assign AmoAccessM        = ReadAccessM & WriteAccessM;
 
   // Misaligned faults
   always_comb // exclusion-tag: immu-wordaccess
@@ -141,15 +145,15 @@ module mmu import cvw::*;  #(parameter cvw_t P,
   assign LoadMisalignedFaultM     = DataMisalignedM & ReadNoAmoAccessM & ~(P.ZICCLSM_SUPPORTED & Cacheable) & ~TLBMiss; 
   assign StoreAmoMisalignedFaultM = DataMisalignedM & WriteAccessM & ~(P.ZICCLSM_SUPPORTED & Cacheable) & ~TLBMiss; // Store and AMO both assert WriteAccess
 
+  // a misaligned Atomic causes an access fault rather than a misaligned fault if a misaligned load/store is handled in hardware
+  // this is subtle - see privileged spec 3.6.3.3
+  assign AtomicMisalignedCausesAccessFaultM = DataMisalignedM & AtomicAccessM & (P.ZICCLSM_SUPPORTED & Cacheable);
+
   // Access faults
   // If TLB miss and translating we want to not have faults from the PMA and PMP checkers.
   assign InstrAccessFaultF    = (PMAInstrAccessFaultF    | PMPInstrAccessFaultF)    & ~TLBMiss;
-  assign LoadAccessFaultM     = (PMALoadAccessFaultM     | PMPLoadAccessFaultM)     & ~TLBMiss;
-  // a misaligned AMO causes an access fault rather than a misaligned fault if a misaligned load/store is handled in hardware
-  // this is subtle - see privileged spec 3.6.3.3
-  // AMO is detected as ReadAccess & WriteAccess
-  assign AmoMisalignedCausesAccessFaultM = DataMisalignedM & AmoAccessM & (P.ZICCLSM_SUPPORTED & Cacheable);
-  assign StoreAmoAccessFaultM = (PMAStoreAmoAccessFaultM | PMPStoreAmoAccessFaultM | AmoMisalignedCausesAccessFaultM) & ~TLBMiss;
+  assign LoadAccessFaultM     = (PMALoadAccessFaultM     | PMPLoadAccessFaultM     | AtomicMisalignedCausesAccessFaultM & ReadNoAmoAccessM)     & ~TLBMiss;
+  assign StoreAmoAccessFaultM = (PMAStoreAmoAccessFaultM | PMPStoreAmoAccessFaultM | AtomicMisalignedCausesAccessFaultM & WriteAccessM) & ~TLBMiss;
 
   // Specify which type of page fault is occurring
   assign InstrPageFaultF    = TLBPageFault & ExecuteAccessF;

@@ -55,6 +55,28 @@ coverage exclude -scope /dut/core/fpu/fpu/postprocess/flags -linerange [GetLineN
 coverage exclude -scope /dut/core/fpu/fpu/postprocess/flags -linerange [GetLineNum ${SRC}/fpu/postproc/flags.sv "assign Underflow"] -item e 1 -fecexprrow 22
 # Convert int to fp will never underflow
 coverage exclude -scope /dut/core/fpu/fpu/postprocess/cvtshiftcalc -linerange [GetLineNum ${SRC}/fpu/postproc/cvtshiftcalc.sv "assign CvtResUf"] -item e 1 -fecexprrow 4
+# without Q support, the FMT field is guaranteed to be 00, 01, or 10 
+coverage exclude -scope /dut/core/fpu/fpu/fctrl -linerange [GetLineNum ${SRC}/fpu/fctrl.sv "fmv int to fp"] -item 1 3 5
+coverage exclude -scope /dut/core/fpu/fpu/fctrl -linerange [GetLineNum ${SRC}/fpu/fctrl.sv "fmv fp to int"] -item 1 3 5
+# j0 can only be 1 in iteration 0, j1 can only be 1 in iteration 1
+coverage exclude -scope /dut/core/fpu/fpu/fdivsqrt/fdivsqrtiter/iterations[0]/stage/fdivsqrtstage/uslc4 -linerange [GetLineNum ${SRC}/fpu/fdivsqrt/fdivsqrtuslc4cmp.sv "assign sqrtspecial"] -item e 1 -fecexprrow 4 6
+coverage exclude -scope /dut/core/fpu/fpu/fdivsqrt/fdivsqrtiter/iterations[1]/stage/fdivsqrtstage/uslc4 -linerange [GetLineNum ${SRC}/fpu/fdivsqrt/fdivsqrtuslc4cmp.sv "assign sqrtspecial"] -item e 1 -fecexprrow 6
+coverage exclude -scope /dut/core/fpu/fpu/fdivsqrt/fdivsqrtiter/iterations[2]/stage/fdivsqrtstage/uslc4 -linerange [GetLineNum ${SRC}/fpu/fdivsqrt/fdivsqrtuslc4cmp.sv "assign sqrtspecial"] -item e 1 -fecexprrow 1 2 4 6
+coverage exclude -scope /dut/core/fpu/fpu/fdivsqrt/fdivsqrtiter/iterations[3]/stage/fdivsqrtstage/uslc4 -linerange [GetLineNum ${SRC}/fpu/fdivsqrt/fdivsqrtuslc4cmp.sv "assign sqrtspecial"] -item e 1 -fecexprrow 1 2 4 6
+# outside of iterations 1 and 0, (j0 | j1) is always 0 so sqrtspecial is always 0
+# need to exclude scenarios where sqrtspecial is 1 for the ternary operators that assign mk2, mk1, mk0, and mkm1
+coverage exclude -scope /dut/core/fpu/fpu/fdivsqrt/fdivsqrtiter/iterations[2]/stage/fdivsqrtstage/uslc4 -linerange [GetLineNum ${SRC}/fpu/fdivsqrt/fdivsqrtuslc4cmp.sv "assign mk2"]  -item b 1
+coverage exclude -scope /dut/core/fpu/fpu/fdivsqrt/fdivsqrtiter/iterations[2]/stage/fdivsqrtstage/uslc4 -linerange [GetLineNum ${SRC}/fpu/fdivsqrt/fdivsqrtuslc4cmp.sv "assign mk1"]  -item b 1
+coverage exclude -scope /dut/core/fpu/fpu/fdivsqrt/fdivsqrtiter/iterations[2]/stage/fdivsqrtstage/uslc4 -linerange [GetLineNum ${SRC}/fpu/fdivsqrt/fdivsqrtuslc4cmp.sv "assign mk0"]  -item b 1
+coverage exclude -scope /dut/core/fpu/fpu/fdivsqrt/fdivsqrtiter/iterations[2]/stage/fdivsqrtstage/uslc4 -linerange [GetLineNum ${SRC}/fpu/fdivsqrt/fdivsqrtuslc4cmp.sv "assign mkm1"] -item b 1
+coverage exclude -scope /dut/core/fpu/fpu/fdivsqrt/fdivsqrtiter/iterations[3]/stage/fdivsqrtstage/uslc4 -linerange [GetLineNum ${SRC}/fpu/fdivsqrt/fdivsqrtuslc4cmp.sv "assign mk2"]  -item b 1
+coverage exclude -scope /dut/core/fpu/fpu/fdivsqrt/fdivsqrtiter/iterations[3]/stage/fdivsqrtstage/uslc4 -linerange [GetLineNum ${SRC}/fpu/fdivsqrt/fdivsqrtuslc4cmp.sv "assign mk1"]  -item b 1
+coverage exclude -scope /dut/core/fpu/fpu/fdivsqrt/fdivsqrtiter/iterations[3]/stage/fdivsqrtstage/uslc4 -linerange [GetLineNum ${SRC}/fpu/fdivsqrt/fdivsqrtuslc4cmp.sv "assign mk0"]  -item b 1
+coverage exclude -scope /dut/core/fpu/fpu/fdivsqrt/fdivsqrtiter/iterations[3]/stage/fdivsqrtstage/uslc4 -linerange [GetLineNum ${SRC}/fpu/fdivsqrt/fdivsqrtuslc4cmp.sv "assign mkm1"] -item b 1
+# outside of iteration 0, j0 is always 0 so the ternary operator that assigns mkj1 cannot be fully covered
+coverage exclude -scope /dut/core/fpu/fpu/fdivsqrt/fdivsqrtiter/iterations[3]/stage/fdivsqrtstage/uslc4 -linerange [GetLineNum ${SRC}/fpu/fdivsqrt/fdivsqrtuslc4cmp.sv "assign mkj1"] -item b 1
+coverage exclude -scope /dut/core/fpu/fpu/fdivsqrt/fdivsqrtiter/iterations[2]/stage/fdivsqrtstage/uslc4 -linerange [GetLineNum ${SRC}/fpu/fdivsqrt/fdivsqrtuslc4cmp.sv "assign mkj1"] -item b 1
+coverage exclude -scope /dut/core/fpu/fpu/fdivsqrt/fdivsqrtiter/iterations[1]/stage/fdivsqrtstage/uslc4 -linerange [GetLineNum ${SRC}/fpu/fdivsqrt/fdivsqrtuslc4cmp.sv "assign mkj1"] -item b 1
 
 ##################
 # Cache Exclusions
@@ -69,6 +91,7 @@ coverage exclude -scope /dut/core/ifu/bus/icache/icache/cachefsm -ftrans CurrSta
 coverage exclude -scope /dut/core/ifu/bus/icache/icache/cachefsm -linerange [GetLineNum ${SRC}/cache/cachefsm.sv "exclusion-tag: icache state-case"] -item b 1
 # I$ does not flush
 coverage exclude -scope /dut/core/ifu/bus/icache/icache/cachefsm -linerange [GetLineNum ${SRC}/cache/cachefsm.sv "exclusion-tag: icache FlushCache"] -item e 1 -fecexprrow 2
+coverage exclude -scope /dut/core/ifu/bus/icache/icache/AdrSelMuxLRU -item b 1
 # exclude branch/condition coverage: LineDirty if statement
 coverage exclude -scope /dut/core/ifu/bus/icache/icache/cachefsm -linerange [GetLineNum ${SRC}/cache/cachefsm.sv "exclusion-tag: icache FETCHStatement"] -item bc 1
 coverage exclude -scope /dut/core/ifu/bus/icache/icache/cachefsm -linerange [GetLineNum ${SRC}/cache/cachefsm.sv "exclusion-tag: icache FLUSHStatement"] -item bs 1
@@ -252,9 +275,7 @@ set line [GetLineNum ${SRC}/mmu/mmu.sv "ExecuteAccessF \\| ReadAccessM"]
 coverage exclude -scope /dut/core/ifu/immu/immu -linerange $line-$line -item e 1 -fecexprrow 1,3,4
 set line [GetLineNum ${SRC}/mmu/mmu.sv "ReadAccessM & ~WriteAccessM"] 
 coverage exclude -scope /dut/core/ifu/immu/immu -linerange $line-$line -item e 1 -fecexprrow 2-4
-set line [GetLineNum ${SRC}/mmu/mmu.sv "assign AmoAccessM"] 
-coverage exclude -scope /dut/core/ifu/immu/immu -linerange $line-$line -item e 1
-set line [GetLineNum ${SRC}/mmu/mmu.sv "assign AmoMisalignedCausesAccessFaultM"] 
+set line [GetLineNum ${SRC}/mmu/mmu.sv "assign AtomicMisalignedCausesAccessFaultM"] 
 coverage exclude -scope /dut/core/ifu/immu/immu -linerange $line-$line -item e 1
 set line [GetLineNum ${SRC}/mmu/mmu.sv "DataMisalignedM & WriteAccessM"] 
 coverage exclude -scope /dut/core/ifu/immu/immu -linerange $line-$line -item e 1 -fecexprrow 1,2,4
@@ -325,6 +346,11 @@ coverage exclude -scope /dut/core/lsu/lsu/hptw/hptw -linerange $line-$line -item
 coverage exclude -scope /dut/core/ifu/immu/immu/pmp/pmpchecker -linerange [GetLineNum ${SRC}/mmu/pmpchecker.sv "exclusion-tag: immu-pmpcbom"] 
 coverage exclude -scope /dut/core/ifu/immu/immu/pmp/pmpchecker -linerange [GetLineNum ${SRC}/mmu/pmpchecker.sv "exclusion-tag: immu-pmpcboz"] 
 coverage exclude -scope /dut/core/ifu/immu/immu/pmp/pmpchecker -linerange [GetLineNum ${SRC}/mmu/pmpchecker.sv "exclusion-tag: immu-pmpcboaccess"] 
+
+# IMMU PMP only makes 4-byte accesses
+coverage exclude -scope /dut/core/ifu/immu/immu/pmp/pmpchecker -linerange [GetLineNum ${SRC}/mmu/pmpchecker.sv "SizeBytesMinus1 = 3'd0"]  -item bs 1
+coverage exclude -scope /dut/core/ifu/immu/immu/pmp/pmpchecker -linerange [GetLineNum ${SRC}/mmu/pmpchecker.sv "SizeBytesMinus1 = 3'd1"]  -item bs 1
+coverage exclude -scope /dut/core/ifu/immu/immu/pmp/pmpchecker -linerange [GetLineNum ${SRC}/mmu/pmpchecker.sv "SizeBytesMinus1 = 3'd7"]  -item bs 1
 
 # No irom
 set line [GetLineNum ${SRC}/ifu/ifu.sv "~ITLBMissF & ~CacheableF & ~SelIROM"] 
@@ -406,12 +432,31 @@ coverage exclude -srcfile priorityonehot.sv
 coverage exclude -scope /dut/core/ifu/immu/immu/pmp/pmpchecker/pmp/pmpadrdecs[0] -linerange [GetLineNum ${SRC}/mmu/pmpadrdec.sv "exclusion-tag: PAgePMPAdrIn"] -item e 1 -fecexprrow 1
 coverage exclude -scope /dut/core/lsu/dmmu/dmmu/pmp/pmpchecker/pmp/pmpadrdecs[0] -linerange [GetLineNum ${SRC}/mmu/pmpadrdec.sv "exclusion-tag: PAgePMPAdrIn"] -item e 1 -fecexprrow 1
 
+# StallD always equals StallF so LatestUnstalledD is always 0
+coverage exclude -scope /dut/core/hzu -linerange [GetLineNum ${SRC}/hazard/hazard.sv "StallD always equals StallF"] -item 1 4
+coverage exclude -scope /dut/core/hzu -linerange [GetLineNum ${SRC}/hazard/hazard.sv "coverage tag: LatestUnstalledD always 0"] -item e 1 -fecexprrow 2
+
 ####################
 # Privileged
 ####################
 
 # Instruction Misaligned never asserted because compresssed instructions are accepted
 coverage exclude -scope /dut/core/priv/priv/trap -linerange [GetLineNum ${SRC}/privileged/trap.sv "assign ExceptionM"] -item e 1 -fecexprrow 2
+
+# Attempting to access fflags, frm, fcsr with mstatus.FS = 0 traps, so checking for (STATUS_FS != 2'b00)
+# before enabling writes to these CSRs is redundant and uncoverable
+coverage exclude -scope /dut/core/priv/priv/csr/csru/csru -linerange [GetLineNum ${SRC}/privileged/csru.sv "assign WriteFRMM"] -item e 1 -fecexprrow 3
+coverage exclude -scope /dut/core/priv/priv/csr/csru/csru -linerange [GetLineNum ${SRC}/privileged/csru.sv "assign WriteFFLAGSM"] -item e 1 -fecexprrow 3
+
+# Attempted writes to the nonextistant MTIME register trap, so WriteHPMCOUNTERM cannot be set for that address (0xb01)
+coverage exclude -scope /dut/core/priv/priv/csr/counters/counters/cntr[1] -linerange [GetLineNum ${SRC}/privileged/csrc.sv "MTIME traps"] -item e 1 -fecexprrow 2 4
+coverage exclude -scope /dut/core/priv/priv/csr/counters/counters/cntr[1] -linerange [GetLineNum ${SRC}/privileged/csrc.sv "assign NextHPMCOUNTERM"] -item b 1
+
+# attempting to write stimecmp with STCE=0 traps, causing CSRSWriteM to go low 
+coverage exclude -scope /dut/core/priv/priv/csr/csrs/csrs -linerange [GetLineNum ${SRC}/privileged/csrs.sv "assign WriteSTIMECMPM"] -item e 1 -fecexprrow 5
+
+# mode != m_mode and TVM = 1 causes a trap, causing CSRSWriteM to go low
+coverage exclude -scope /dut/core/priv/priv/csr/csrs/csrs -linerange [GetLineNum ${SRC}/privileged/csrs.sv "assign WriteSATPM"] -item e 1 -fecexprrow 5 8
 
 ####################
 # EBU
