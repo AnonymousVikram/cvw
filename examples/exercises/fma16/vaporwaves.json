@@ -1,0 +1,177 @@
+{
+  "extensionVersion": "1.3.3",
+  "fileName": "/home/vkrishna/workspace/cvw/examples/exercises/fma16/fma16.vcd",
+  "markerTime": 19,
+  "altMarkerTime": null,
+  "selectedSignal": {
+    "name": "testbench_fma16.z",
+    "numberFormat": "hexadecimal",
+    "msb": 15,
+    "lsb": 0
+  },
+  "zoomRatio": 25.6,
+  "scrollLeft": 0,
+  "displayedSignals": [
+    {
+      "netlistId": 0,
+      "name": "testbench_fma16.clk",
+      "numberFormat": "binary",
+      "colorIndex": 0,
+      "renderType": "binary"
+    },
+    {
+      "netlistId": 1,
+      "name": "testbench_fma16.reset",
+      "numberFormat": "binary",
+      "colorIndex": 0,
+      "renderType": "binary"
+    },
+    {
+      "netlistId": 2,
+      "name": "testbench_fma16.x",
+      "numberFormat": "hexadecimal",
+      "colorIndex": 0,
+      "renderType": "multiBit"
+    },
+    {
+      "netlistId": 3,
+      "name": "testbench_fma16.y",
+      "numberFormat": "hexadecimal",
+      "colorIndex": 0,
+      "renderType": "multiBit"
+    },
+    {
+      "netlistId": 4,
+      "name": "testbench_fma16.z",
+      "numberFormat": "hexadecimal",
+      "colorIndex": 0,
+      "renderType": "multiBit"
+    },
+    {
+      "netlistId": 5,
+      "name": "testbench_fma16.rexpected",
+      "numberFormat": "binary",
+      "colorIndex": 0,
+      "renderType": "multiBit"
+    },
+    {
+      "netlistId": 6,
+      "name": "testbench_fma16.result",
+      "numberFormat": "binary",
+      "colorIndex": 0,
+      "renderType": "multiBit"
+    },
+    {
+      "netlistId": 78,
+      "name": "testbench_fma16.dut.mulSig",
+      "numberFormat": "hexadecimal",
+      "colorIndex": 0,
+      "renderType": "multiBit"
+    },
+    {
+      "netlistId": 77,
+      "name": "testbench_fma16.dut.mulExp",
+      "numberFormat": "signed",
+      "colorIndex": 0,
+      "renderType": "multiBit"
+    },
+    {
+      "netlistId": 79,
+      "name": "testbench_fma16.dut.killProd",
+      "numberFormat": "binary",
+      "colorIndex": 0,
+      "renderType": "binary"
+    },
+    {
+      "netlistId": 81,
+      "name": "testbench_fma16.dut.alignedZ",
+      "numberFormat": "binary",
+      "colorIndex": 0,
+      "renderType": "multiBit"
+    },
+    {
+      "netlistId": 83,
+      "name": "testbench_fma16.dut.sumExp",
+      "numberFormat": "signed",
+      "colorIndex": 0,
+      "renderType": "multiBit"
+    },
+    {
+      "netlistId": 84,
+      "name": "testbench_fma16.dut.sumSig",
+      "numberFormat": "binary",
+      "colorIndex": 0,
+      "renderType": "multiBit"
+    },
+    {
+      "netlistId": 195,
+      "name": "testbench_fma16.dut.shifter.preshiftedZ",
+      "numberFormat": "binary",
+      "colorIndex": 0,
+      "renderType": "multiBit"
+    },
+    {
+      "netlistId": 197,
+      "name": "testbench_fma16.dut.shifter.shiftedZ",
+      "numberFormat": "binary",
+      "colorIndex": 0,
+      "renderType": "multiBit"
+    },
+    {
+      "netlistId": 194,
+      "name": "testbench_fma16.dut.shifter.alignedZ",
+      "numberFormat": "binary",
+      "colorIndex": 0,
+      "renderType": "multiBit"
+    },
+    {
+      "netlistId": 198,
+      "name": "testbench_fma16.dut.shifter.temp",
+      "numberFormat": "binary",
+      "colorIndex": 0,
+      "renderType": "multiBit"
+    },
+    {
+      "netlistId": 199,
+      "name": "testbench_fma16.dut.shifter.alignmentCount",
+      "numberFormat": "signed",
+      "colorIndex": 0,
+      "renderType": "multiBit"
+    },
+    {
+      "netlistId": 322,
+      "name": "testbench_fma16.dut.postproc.resultParsed",
+      "numberFormat": "binary",
+      "colorIndex": 0,
+      "renderType": "multiBit"
+    },
+    {
+      "netlistId": 323,
+      "name": "testbench_fma16.dut.postproc.leadingOnePos",
+      "numberFormat": "binary",
+      "colorIndex": 0,
+      "renderType": "multiBit"
+    },
+    {
+      "netlistId": 324,
+      "name": "testbench_fma16.dut.postproc.leadingOnePosNum",
+      "numberFormat": "signed",
+      "colorIndex": 0,
+      "renderType": "multiBit"
+    },
+    {
+      "netlistId": 326,
+      "name": "testbench_fma16.dut.postproc.interExp",
+      "numberFormat": "signed",
+      "colorIndex": 0,
+      "renderType": "multiBit"
+    },
+    {
+      "netlistId": 75,
+      "name": "testbench_fma16.dut.zParsed",
+      "numberFormat": "binary",
+      "colorIndex": 0,
+      "renderType": "multiBit"
+    }
+  ]
+}

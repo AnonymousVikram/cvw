@@ -16,7 +16,7 @@ typedef union sp {
 
 // lists of tests, terminated with 0x8000
 uint16_t easyExponents[] = {15, 0x8000};
-uint16_t easyFracts[] = {0, 0x200, 0x8000}; // 1.0 and 1.1
+  uint16_t easyFracts[] = {0, 0x200, 0x8000}; // 1.0 and 1.1
 
 uint16_t medExponents[] = {0, 15, 31, 0x8000};
 uint16_t medFracts[] = {0x00F, 0x0FF, 0x10F, 0x1FF,

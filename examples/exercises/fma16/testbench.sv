@@ -1,4 +1,6 @@
 /* verilator lint_off STMTDLY */
+
+// `define debug
 module testbench_fma16;
   logic        clk, reset;
   logic [15:0] x, y, z, rexpected, result;
@@ -21,7 +23,9 @@ module testbench_fma16;
   // at start of test, load vectors and pulse reset
   initial
     begin
-      $readmemh("tests/fmul_0.tv", testvectors);
+      $dumpfile("fma16.vcd");
+      $dumpvars(0, testbench_fma16);
+      $readmemh("work/baby_torture.tv", testvectors);
       vectornum = 0; errors = 0;
       reset = 1; #22; reset = 0;
     end
@@ -41,6 +45,12 @@ module testbench_fma16;
         $display("  result = %h (%h expected) flags = %b (%b expected)", 
           result, rexpected, flags, flagsexpected);
         errors = errors + 1;
+
+        `ifdef debug
+          $display("Leading One Position: %d", dut.postproc.leadingOnePosNum);
+          $display("Significant: %b", dut.postproc.sumSig);
+          $display("Indexed Significant: %b", dut.postproc.sumSig[dut.postproc.leadingOnePosNum-1 -: 10]);
+        `endif
       end
       vectornum = vectornum + 1;
       if (testvectors[vectornum] === 'x) begin 

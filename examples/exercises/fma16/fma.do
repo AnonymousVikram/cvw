@@ -8,7 +8,7 @@ onbreak {resume}
 # create library
 vlib worklib
 
-vlog -lint -sv -work worklib fma16.sv testbench.sv multiplier.sv
+vlog -lint -sv -work worklib fma16.sv testbench.sv multiplier.sv adder.sv shifter.sv postproc.sv unpack.sv
 vopt +acc worklib.testbench_fma16 -work worklib -o testbenchopt
 vsim -lib worklib testbenchopt
 
@@ -30,18 +30,6 @@ add wave -noupdate -divider fma16
 add wave -noupdate /testbench_fma16/dut/xParsed
 add wave -noupdate /testbench_fma16/dut/yParsed
 add wave -noupdate /testbench_fma16/dut/zParsed
-add wave -noupdate /testbench_fma16/dut/resultParsed
-add wave -noupdate /testbench_fma16/dut/mulResult
-add wave -noupdate /testbench_fma16/dut/mulResultShifted
 add wave -noupdate /testbench_fma16/dut/result
-add wave -noupdate -divider mul1
-add wave -noupdate /testbench_fma16/dut/mul1/x
-add wave -noupdate /testbench_fma16/dut/mul1/y
-add wave -noupdate /testbench_fma16/dut/mul1/result
-add wave -noupdate /testbench_fma16/dut/mul1/resultShifted
-add wave -noupdate /testbench_fma16/dut/mul1/adjX
-add wave -noupdate /testbench_fma16/dut/mul1/adjY
-add wave -noupdate /testbench_fma16/dut/mul1/partials
-add wave -noupdate /testbench_fma16/dut/mul1/partialsSum
 
 run -all
