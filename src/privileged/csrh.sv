@@ -32,12 +32,12 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
   input  logic [11:0]       CSRAdrM,
   input  logic [P.XLEN-1:0] CSRWriteValM,
   input  logic [1:0]        PrivilegeModeW,   // Current privilege mode (U, S, M)
+  input  logic              NextVirtModeM,     // Next V-mode bit (for hstatus.SPV)
   input  logic              VirtModeW,        // Virtualization mode (VS/VU)
   input  logic [11:0]       MIP_REGW,         // mip register for HIP calculation
 
   input  logic              HSTrapM,          // Trap occurred in HS-mode
-  input  logic              PrivReturnHS,     // Privilege return (sret) from HS-mode
-  input  logic              NextVirtModeM,     // Next V-mode bit (for hstatus.SPV)
+  input  logic              PrivReturnHSM,   // Privilege return (sret) from HS-mode
   input  logic [P.XLEN-1:0] NextEPCM,         // Value for hepc on trap
   input  logic [4:0] NextCauseM,      // Value for hcause on trap
   input  logic [P.XLEN-1:0] NextMtvalM,       // Value for htval on trap
@@ -91,9 +91,24 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
   // Internal register for htimedelta
   logic [P.XLEN-1:0] HTIMEDELTA_REGW;
 
+  // HSTATUS next value mux
+  logic [P.XLEN-1:0] NextHSTATUS;
+
+  // HEPC next value mux
+  logic [P.XLEN-1:0] NextHEPC;
+
+  // HCAUSE next value mux
+  logic [P.XLEN-1:0] NextHCAUSE;
+
+  // HTVAL next value mux
+  logic [P.XLEN-1:0] NextHTVAL;
+
+  // HTINST next value mux
+  logic [P.XLEN-1:0] NextHTINST;
+
   // CSR Write Validation Intermediates
   logic LegalHAccess;
-  logic IsReadOnlyCSR;
+  logic ReadOnlyCSR;
   logic ValidWrite;
 
   // H-CSRs are accessible in M-Mode or HS-Mode.
@@ -102,9 +117,9 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
   assign LegalHAccess = (PrivilegeModeW == P.M_MODE) |
                         ((PrivilegeModeW == P.S_MODE) & ~VirtModeW);
 
-  assign IsReadOnlyCSR = (CSRAdrM == HIP);
+  assign ReadOnlyCSR = (CSRAdrM == HIP);
 
-  assign ValidWrite = CSRHWriteM & LegalHAccess & ~IsReadOnlyCSR;
+  assign ValidWrite = CSRHWriteM & LegalHAccess & ~ReadOnlyCSR;
 
   // Write enables for each CSR (from CSR instruction)
   assign WriteHSTATUSM    = ValidWrite & (CSRAdrM == HSTATUS);
@@ -116,7 +131,7 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
   assign WriteHGEIEM      = ValidWrite & (CSRAdrM == HGEIE);
   assign WriteHENVCFGM    = ValidWrite & (CSRAdrM == HENVCFG);
   // henvcfgh only exists and is writable for RV32
-  assign WriteHENVCFGHM   = (P.XLEN == 32) ? (ValidWrite & (CSRAdrM == HENVCFGH)) : 1'b0;
+  assign WriteHENVCFGHM   = (P.XLEN == 32) & (ValidWrite & (CSRAdrM == HENVCFGH));
   assign WriteHEPCM       = ValidWrite & (CSRAdrM == HEPC);
   assign WriteHCAUSSEM    = ValidWrite & (CSRAdrM == HCAUSE);
   assign WriteHTVALM      = ValidWrite & (CSRAdrM == HTVAL);
@@ -126,14 +141,11 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
 
   // HSTATUS
   // This register is written by CSR instructions and by hardware on sret
-  always_ff @(posedge clk) begin
-    if (reset)
-      HSTATUS_REGW <= '0;
-    else if (WriteHSTATUSM)
-      HSTATUS_REGW <= CSRWriteValM;
-    else if (PrivReturnHS)
-      HSTATUS_REGW[7] <= NextVirtModeM; // Update SPV bit (bit 7)
-  end
+  // Three-way mux: CSR write -> CSRWriteValM, sret -> update SPV bit (bit 7), otherwise -> hold
+  assign NextHSTATUS = WriteHSTATUSM ? CSRWriteValM :
+                       PrivReturnHSM ? {HSTATUS_REGW[P.XLEN-1:8], NextVirtModeM, HSTATUS_REGW[6:0]} :
+                       HSTATUS_REGW;
+  flopr #(P.XLEN) HSTATUSreg(clk, reset, NextHSTATUS, HSTATUS_REGW);
 
   // Exception and Interrupt Delegation Registers
   flopenr #(P.XLEN) HEDELEGreg(clk, reset, WriteHEDELEGM, CSRWriteValM, HEDELEG_REGW);
@@ -146,20 +158,20 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
 
   // Trap Handling
   // HEPC: Written by CSR instructions and by hardware on traps
-  flopenr #(P.XLEN) HEPCreg(clk, reset, (WriteHEPCM | HSTrapM),
-                            HSTrapM ? NextEPCM : CSRWriteValM, HEPC_REGW);
+  assign NextHEPC = HSTrapM ? NextEPCM : CSRWriteValM;
+  flopenr #(P.XLEN) HEPCreg(clk, reset, (WriteHEPCM | HSTrapM), NextHEPC, HEPC_REGW);
 
   // HCAUSE: Written by CSR instructions and by hardware on traps
-  flopenr #(P.XLEN) HCAUSEreg (clk, reset, (WriteHCAUSSEM | HSTrapM),
-                            HSTrapM ? {{(P.XLEN-5){1'b0}}, NextCauseM} : CSRWriteValM, HCAUSE_REGW);
+  assign NextHCAUSE = HSTrapM ? {{(P.XLEN-5){1'b0}}, NextCauseM} : CSRWriteValM;
+  flopenr #(P.XLEN) HCAUSEreg (clk, reset, (WriteHCAUSSEM | HSTrapM), NextHCAUSE, HCAUSE_REGW);
 
   // HTVAL: Written by CSR instructions and by hardware on traps
-  flopenr #(P.XLEN) HTVALreg(clk, reset, (WriteHTVALM | HSTrapM),
-                            HSTrapM ? NextMtvalM : CSRWriteValM, HTVAL_REGW);
+  assign NextHTVAL = HSTrapM ? NextMtvalM : CSRWriteValM;
+  flopenr #(P.XLEN) HTVALreg(clk, reset, (WriteHTVALM | HSTrapM), NextHTVAL, HTVAL_REGW);
 
   // HTINST: Written by CSR instructions and by hardware on traps
-  flopenr #(P.XLEN) HTINSTreg(clk, reset, (WriteHTINSTM | HSTrapM),
-                            HSTrapM ? NextTinstM : CSRWriteValM, HTINST_REGW);
+  assign NextHTINST = HSTrapM ? NextTinstM : CSRWriteValM;
+  flopenr #(P.XLEN) HTINSTreg(clk, reset, (WriteHTINSTM | HSTrapM), NextHTINST, HTINST_REGW);
 
   // Address Translation
   flopenr #(P.XLEN) HGATPreg(clk, reset, WriteHGATPM, CSRWriteValM, HGATP_REGW);
@@ -188,7 +200,7 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
         HCOUNTEREN: CSRHReadValM = HCOUNTEREN_REGW;
         HGEIE:      CSRHReadValM = HGEIE_REGW;
         HENVCFG:    CSRHReadValM = HENVCFG_REGW;
-        HENVCFGH:   CSRHReadValM = (P.XLEN == 32) ? HENVCFGH_REGW : '0; // Only exists for RV32
+        HENVCFGH:   CSRHReadValM = HENVCFGH_REGW; // Only exists for RV32, reads 0 for RV64
         HEPC:       CSRHReadValM = HEPC_REGW;
         HCAUSE:     CSRHReadValM = HCAUSE_REGW;
         HTVAL:      CSRHReadValM = HTVAL_REGW;
@@ -199,7 +211,7 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
         default:    CSRHReadValM = '0; // Access to non-existent CSR reads 0
       endcase
 
-      if (CSRHWriteM && IsReadOnlyCSR) begin
+      if (CSRHWriteM && ReadOnlyCSR) begin
         IllegalCSRHAccessM = 1'b1;
       end
     end

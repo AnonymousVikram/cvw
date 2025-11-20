@@ -52,8 +52,8 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   input  logic [4:0]               SetFflagsM,                // Set floating point flag bits in FCSR
   input  logic [1:0]               NextPrivilegeModeM,        // STATUS bits updated based on next privilege mode
   input  logic [1:0]               PrivilegeModeW,            // current privilege mode
-  input  logic                     VirtModeW,                 // current V Bit
   input  logic                     NextVirtModeM,             // next V Bit
+  input  logic                     VirtModeW,                 // current V Bit
   input  logic [3:0]               CauseM,                    // Trap cause
   input  logic                     SelHPTW,                   // hardware page table walker active, so base endianness on supervisor mode
   // inputs for performance counters
@@ -209,12 +209,12 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   assign UngatedCSRMWriteM = CSRWriteM & (PrivilegeModeW == P.M_MODE);
   assign CSRMWriteM = UngatedCSRMWriteM & InstrValidNotFlushedM;
   assign CSRSWriteM = CSRWriteM & (|PrivilegeModeW) & InstrValidNotFlushedM;
-  assign CSRHWriteM = CSRWriteM & (PrivilegeModeW == P.S_MODE & ~VirtModeW) & InstrValidNotFlushedM;
+  assign CSRHWriteM = CSRWriteM & (PrivilegeModeW == P.S_MODE & ~VirtModeW) & InstrValidNotFlushedM & P.H_SUPPORTED;
   assign CSRUWriteM = CSRWriteM  & InstrValidNotFlushedM;
   assign MTrapM = TrapM & (NextPrivilegeModeM == P.M_MODE);
   assign STrapM = TrapM & (NextPrivilegeModeM == P.S_MODE) & P.S_SUPPORTED;
   assign HSTrapM = TrapM & (NextPrivilegeModeM == P.S_MODE & !VirtModeW) & P.H_SUPPORTED;
-  assign PrivReturnHS = sretM & (PrivilegeModeW == P.S_MODE & !VirtModeW) & P.H_SUPPORTED;
+  assign PrivReturnHSM = sretM & (PrivilegeModeW == P.S_MODE & !VirtModeW) & P.H_SUPPORTED;
   assign NextTinstM = TrapM ? {{P.XLEN-32{1'b0}}, InstrM[31:0]} : CSRWriteValM;
 
   ///////////////////////////////////////////
@@ -275,7 +275,7 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   logic IllegalCSRHAccessM;
 
   logic HSTrapM;
-  logic PrivReturnHS;
+  logic PrivReturnHSM;
   logic [P.XLEN-1:0] NextTinstM;
 
   logic [P.XLEN-1:0] HSTATUS_REGW;
@@ -296,9 +296,9 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   if (P.H_SUPPORTED) begin:csrh
     csrh #(P) csrh(.clk, .reset,
       .CSRHWriteM, .CSRAdrM, .CSRWriteValM,
-      .PrivilegeModeW, .VirtModeW, .MIP_REGW,
-      .HSTrapM, .NextEPCM, .NextCauseM, .NextMtvalM,
-      .NextTinstM, .PrivReturnHS, .NextVirtModeM,
+      .PrivilegeModeW, .NextVirtModeM, .VirtModeW, .MIP_REGW,
+      .HSTrapM, .PrivReturnHSM, .NextEPCM, .NextCauseM, .NextMtvalM,
+      .NextTinstM,
       .CSRHReadValM, .IllegalCSRHAccessM,
       .HSTATUS_REGW, .HEDELEG_REGW, .HIDELEG_REGW,
       .HEPC_REGW, .HCAUSE_REGW, .HVIP_REGW, .HIE_REGW,
