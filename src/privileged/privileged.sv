@@ -125,9 +125,12 @@ module privileged import cvw::*;  #(parameter cvw_t P) (
     // --- Hypervisor ---
   logic                     NextVirtModeM;   // next V (from privmode)
   logic                     VirtModeW;       // current V (from privmode)
+  logic                     VirtualInstrFaultM; // virtual instruction faults from privdec
+  logic                     hfencevvmaM, hfencegvmaM; // fence instructions from privdec
   /* verilator lint_off UNDRIVEN */
   logic                     MSTATUS_MPV;     // from CSR (prev V for MRET)
   logic                     HSTATUS_SPV;     // from CSR (prev V for SRET in HS)
+  logic                     [P.XLEN - 1:0] HSTATUS_REGW; // hstatus register used in privdec
   logic                     TrapToM, TrapToHS, TrapToVS; // trap target one-hots
   /* verilator lint_on UNDRIVEN */
 
@@ -139,8 +142,8 @@ module privileged import cvw::*;  #(parameter cvw_t P) (
   // decode privileged instructions
   privdec #(P) pmd(.clk, .reset, .StallW, .FlushW, .InstrM(InstrM[31:7]),
     .PrivilegedM, .IllegalIEUFPUInstrM, .IllegalCSRAccessM,
-    .PrivilegeModeW, .STATUS_TSR, .STATUS_TVM, .STATUS_TW, .IllegalInstrFaultM,
-    .EcallFaultM, .BreakpointFaultM, .sretM, .mretM, .RetM, .wfiM, .wfiW, .sfencevmaM);
+    .PrivilegeModeW, .VirtModeW, .HSTATUS_REGW, .STATUS_TSR, .STATUS_TVM, .STATUS_TW, .IllegalInstrFaultM, .VirtualInstrFaultM
+    .EcallFaultM, .BreakpointFaultM, .sretM, .mretM, .RetM, .wfiM, .wfiW, .sfencevmaM, .hfencevvmaM, .hfencegvmaM);
 
   // Control and Status Registers
   csr #(P) csr(.clk, .reset, .FlushM, .FlushW, .StallE, .StallM, .StallW,
