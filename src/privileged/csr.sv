@@ -215,7 +215,7 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   assign STrapM = TrapM & (NextPrivilegeModeM == P.S_MODE) & P.S_SUPPORTED;
   assign HSTrapM = TrapM & (NextPrivilegeModeM == P.S_MODE & ~VirtModeW) & P.H_SUPPORTED;
   assign PrivReturnHSM = sretM & (PrivilegeModeW == P.S_MODE & ~VirtModeW) & P.H_SUPPORTED;
-  assign NextTinstM = TrapM ? {{P.XLEN-32{1'b0}}, InstrM[31:0]} : CSRWriteValM;
+  assign NextHtinstM = 0; // not implemented; TODO: add module to transform appropriate instructions
 
   ///////////////////////////////////////////
   // CSRs
@@ -276,14 +276,14 @@ module csr import cvw::*;  #(parameter cvw_t P) (
 
   logic HSTrapM;
   logic PrivReturnHSM;
-  logic [P.XLEN-1:0] NextTinstM;
+  logic [P.XLEN-1:0] NextHtinstM;
 
   if (P.H_SUPPORTED) begin:csrh
     csrh #(P) csrh(.clk, .reset,
       .CSRHWriteM, .CSRAdrM, .CSRWriteValM,
       .PrivilegeModeW, .NextVirtModeM, .VirtModeW, .MIP_REGW,
       .HSTrapM, .PrivReturnHSM, .NextEPCM, .NextCauseM, .NextHtvalM(NextMtvalM),
-      .NextTinstM,
+      .NextHtinstM,
       .CSRHReadValM, .IllegalCSRHAccessM);
   end else begin: no_csrh
     assign CSRHReadValM = '0;

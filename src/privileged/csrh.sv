@@ -41,7 +41,7 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
   input  logic [P.XLEN-1:0] NextEPCM,         // Value for hepc on trap
   input  logic [4:0]        NextCauseM,       // Value for hcause on trap
   input  logic [P.XLEN-1:0] NextHtvalM,       // Value for htval on trap
-  input  logic [P.XLEN-1:0] NextTinstM,       // Value for htinst on trap
+  input  logic [P.XLEN-1:0] NextHtinstM,       // Value for htinst on trap
 
   output logic [P.XLEN-1:0] CSRHReadValM,
   output logic              IllegalCSRHAccessM
@@ -75,11 +75,11 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
   localparam HENVCFG    = 12'h60A;
   localparam HENVCFGH   = 12'h61A;
   localparam HEPC       = 12'h640;
-  localparam HCAUSE     = 12'h641;
+  localparam HCAUSE     =; 12'h641;
   localparam HTVAL      = 12'h643;
   localparam HIP        = 12'h644;
   localparam HVIP       = 12'h645;
-  localparam HTINST     = 12'h64A;
+  localparam HTINS     = 12'h64A;
   localparam HGATP      = 12'h680;
   localparam HGEIP      = 12'hE12;
 
@@ -163,7 +163,7 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
   flopenr #(P.XLEN) HTVALreg(clk, reset, (WriteHTVALM | HSTrapM), NextHTVAL, HTVAL_REGW);
 
   // HTINST: Written by CSR instructions and by hardware on traps
-  assign NextHTINST = HSTrapM ? NextTinstM : CSRWriteValM;
+  assign NextHTINST = HSTrapM ? NextHtinstM : CSRWriteValM;
   flopenr #(P.XLEN) HTINSTreg(clk, reset, (WriteHTINSTM | HSTrapM), NextHTINST, HTINST_REGW);
 
   // Address Translation
