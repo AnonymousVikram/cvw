@@ -75,7 +75,7 @@ module trap import cvw::*;  #(parameter cvw_t P) (
 
   assign TrapToVS = 1'b0; // until hedeleg/hideleg are implemented
   assign TrapToHS = DelegateM;
-  assign TrapToM  = TrapM & ~TrapToHS; // and not VS
+  assign TrapToM  = TrapM & ~TrapToHS & ~TrapToVS; // and not VS
 
   ///////////////////////////////////////////
   // Trigger Traps

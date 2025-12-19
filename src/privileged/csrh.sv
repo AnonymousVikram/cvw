@@ -32,36 +32,36 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
   input  logic [11:0]       CSRAdrM,
   input  logic [P.XLEN-1:0] CSRWriteValM,
   input  logic [1:0]        PrivilegeModeW,   // Current privilege mode (U, S, M)
-  input  logic              NextVirtModeM,     // Next V-mode bit (for hstatus.SPV)
+  input  logic              NextVirtModeM,    // Next V-mode bit (for hstatus.SPV)
   input  logic              VirtModeW,        // Virtualization mode (VS/VU)
   input  logic [11:0]       MIP_REGW,         // mip register for HIP calculation
 
   input  logic              HSTrapM,          // Trap occurred in HS-mode
-  input  logic              PrivReturnHSM,   // Privilege return (sret) from HS-mode
+  input  logic              PrivReturnHSM,    // Privilege return (sret) from HS-mode
   input  logic [P.XLEN-1:0] NextEPCM,         // Value for hepc on trap
-  input  logic [4:0] NextCauseM,      // Value for hcause on trap
-  input  logic [P.XLEN-1:0] NextMtvalM,       // Value for htval on trap
+  input  logic [4:0]        NextCauseM,       // Value for hcause on trap
+  input  logic [P.XLEN-1:0] NextHtvalM,       // Value for htval on trap
   input  logic [P.XLEN-1:0] NextTinstM,       // Value for htinst on trap
 
   output logic [P.XLEN-1:0] CSRHReadValM,
-  output logic              IllegalCSRHAccessM,
-
-  // Exported Registers
-  output logic [P.XLEN-1:0] HSTATUS_REGW,
-  output logic [P.XLEN-1:0] HEDELEG_REGW,
-  output logic [P.XLEN-1:0] HIDELEG_REGW,
-  output logic [P.XLEN-1:0] HEPC_REGW,
-  output logic [P.XLEN-1:0] HCAUSE_REGW,
-  output logic [11:0]       HVIP_REGW,
-  output logic [P.XLEN-1:0] HIE_REGW,
-  output logic [P.XLEN-1:0] HGEIE_REGW,
-  output logic [P.XLEN-1:0] HENVCFG_REGW,
-  output logic [P.XLEN-1:0] HENVCFGH_REGW, // Added for RV32
-  output logic [P.XLEN-1:0] HCOUNTEREN_REGW,
-  output logic [P.XLEN-1:0] HGATP_REGW,
-  output logic [P.XLEN-1:0] HTVAL_REGW,
-  output logic [P.XLEN-1:0] HTINST_REGW
+  output logic              IllegalCSRHAccessM
 );
+
+  logic [P.XLEN-1:0] HSTATUS_REGW;
+  logic [P.XLEN-1:0] HEDELEG_REGW;
+  logic [P.XLEN-1:0] HIDELEG_REGW;
+  logic [P.XLEN-1:0] HEPC_REGW;
+  logic [P.XLEN-1:0] HCAUSE_REGW;
+  logic [11:0]       HVIP_REGW;
+  logic [P.XLEN-1:0] HIE_REGW;
+  logic [P.XLEN-1:0] HGEIE_REGW;
+  logic [63:0]       HENVCFG_REGW;
+  logic [31:0]       HCOUNTEREN_REGW;
+  logic [P.XLEN-1:0] HGATP_REGW;
+  logic [P.XLEN-1:0] HTVAL_REGW;
+  logic [P.XLEN-1:0] HTINST_REGW;
+  logic [P.XLEN-1:0] HGEIP_REGW;
+  logic [63:0] HTIMEDELTA_REGW;
 
   // Hypervisor CSR Addresses
   localparam HSTATUS    = 12'h600;
@@ -69,10 +69,11 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
   localparam HIDELEG    = 12'h603;
   localparam HIE        = 12'h604;
   localparam HTIMEDELTA = 12'h605;
+  localparam HTIMEDELTAH = 12'h615;
   localparam HCOUNTEREN = 12'h606;
   localparam HGEIE      = 12'h607;
   localparam HENVCFG    = 12'h60A;
-  localparam HENVCFGH   = 12'h61A; // For RV32 only
+  localparam HENVCFGH   = 12'h61A;
   localparam HEPC       = 12'h640;
   localparam HCAUSE     = 12'h641;
   localparam HTVAL      = 12'h643;
@@ -80,64 +81,56 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
   localparam HVIP       = 12'h645;
   localparam HTINST     = 12'h64A;
   localparam HGATP      = 12'h680;
+  localparam HGEIP      = 12'hE12;
 
   // Write Enables for CSR instructions
   logic WriteHSTATUSM, WriteHEDELEGM, WriteHIDELEGM;
   logic WriteHIEM, WriteHTIMEDELTAM, WriteHCOUNTERENM;
   logic WriteHGEIEM, WriteHENVCFGM, WriteHENVCFGHM, WriteHTVALM;
   logic WriteHVIPM, WriteHTINSTM, WriteHGATPM;
-  logic WriteHEPCM, WriteHCAUSSEM;
+  logic WriteHTIMEDELTAHM, WriteHGEIPM;
+  logic WriteHEPCM, WriteHCAUSEM;
 
-  // Internal register for htimedelta
-  logic [P.XLEN-1:0] HTIMEDELTA_REGW;
-
-  // HSTATUS next value mux
+  // Next Value Muxes
   logic [P.XLEN-1:0] NextHSTATUS;
-
-  // HEPC next value mux
   logic [P.XLEN-1:0] NextHEPC;
-
-  // HCAUSE next value mux
   logic [P.XLEN-1:0] NextHCAUSE;
-
-  // HTVAL next value mux
   logic [P.XLEN-1:0] NextHTVAL;
-
-  // HTINST next value mux
   logic [P.XLEN-1:0] NextHTINST;
 
   // CSR Write Validation Intermediates
-  logic LegalHAccess;
+  logic LegalHAccessM;
   logic ReadOnlyCSR;
   logic ValidWrite;
 
   // H-CSRs are accessible in M-Mode or HS-Mode.
   // HS-Mode is S-Mode when VirtModeW is 0.
   // Access is ILLEGAL in U-Mode (U/VU) and VS-Mode (S-Mode when VirtModeW=1).
-  assign LegalHAccess = (PrivilegeModeW == P.M_MODE) |
+  assign LegalHAccessM = (PrivilegeModeW == P.M_MODE) |
                         ((PrivilegeModeW == P.S_MODE) & ~VirtModeW);
 
   assign ReadOnlyCSR = (CSRAdrM == HIP);
 
-  assign ValidWrite = CSRHWriteM & LegalHAccess & ~ReadOnlyCSR;
+  assign ValidWrite = CSRHWriteM & LegalHAccessM & ~ReadOnlyCSR;
 
   // Write enables for each CSR (from CSR instruction)
   assign WriteHSTATUSM    = ValidWrite & (CSRAdrM == HSTATUS);
   assign WriteHEDELEGM    = ValidWrite & (CSRAdrM == HEDELEG);
-  assign WriteHIDELEGM    = ValidWrite & (CSRAdrM == HIDELEG); // Fixed typo CSRAdrMA -> CSRAdrM
+  assign WriteHIDELEGM    = ValidWrite & (CSRAdrM == HIDELEG);
   assign WriteHIEM        = ValidWrite & (CSRAdrM == HIE);
   assign WriteHTIMEDELTAM = ValidWrite & (CSRAdrM == HTIMEDELTA);
+  assign WriteHTIMEDELTAHM = (P.XLEN == 32) & (ValidWrite & (CSRAdrM == HTIMEDELTAH));
   assign WriteHCOUNTERENM = ValidWrite & (CSRAdrM == HCOUNTEREN);
   assign WriteHGEIEM      = ValidWrite & (CSRAdrM == HGEIE);
   assign WriteHENVCFGM    = ValidWrite & (CSRAdrM == HENVCFG);
-  // henvcfgh only exists and is writable for RV32
   assign WriteHENVCFGHM   = (P.XLEN == 32) & (ValidWrite & (CSRAdrM == HENVCFGH));
   assign WriteHEPCM       = ValidWrite & (CSRAdrM == HEPC);
-  assign WriteHCAUSSEM    = ValidWrite & (CSRAdrM == HCAUSE);
+  assign WriteHCAUSEM    = ValidWrite & (CSRAdrM == HCAUSE);
   assign WriteHTVALM      = ValidWrite & (CSRAdrM == HTVAL);
   assign WriteHVIPM       = ValidWrite & (CSRAdrM == HVIP);
   assign WriteHTINSTM     = ValidWrite & (CSRAdrM == HTINST);
   assign WriteHGATPM      = ValidWrite & (CSRAdrM == HGATP);
+  assign WriteHGEIPM      = ValidWrite & (CSRAdrM == HGEIP);
 
   // HSTATUS
   // This register is written by CSR instructions and by hardware on sret
@@ -163,10 +156,10 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
 
   // HCAUSE: Written by CSR instructions and by hardware on traps
   assign NextHCAUSE = HSTrapM ? {{(P.XLEN-5){1'b0}}, NextCauseM} : CSRWriteValM;
-  flopenr #(P.XLEN) HCAUSEreg (clk, reset, (WriteHCAUSSEM | HSTrapM), NextHCAUSE, HCAUSE_REGW);
+  flopenr #(P.XLEN) HCAUSEreg (clk, reset, (WriteHCAUSEM | HSTrapM), NextHCAUSE, HCAUSE_REGW);
 
   // HTVAL: Written by CSR instructions and by hardware on traps
-  assign NextHTVAL = HSTrapM ? NextMtvalM : CSRWriteValM;
+  assign NextHTVAL = HSTrapM ? NextHtvalM : CSRWriteValM;
   flopenr #(P.XLEN) HTVALreg(clk, reset, (WriteHTVALM | HSTrapM), NextHTVAL, HTVAL_REGW);
 
   // HTINST: Written by CSR instructions and by hardware on traps
@@ -177,10 +170,20 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
   flopenr #(P.XLEN) HGATPreg(clk, reset, WriteHGATPM, CSRWriteValM, HGATP_REGW);
 
   // Configuration & Timers
-  flopenr #(P.XLEN) HCOUNTERENreg(clk, reset, WriteHCOUNTERENM, CSRWriteValM, HCOUNTEREN_REGW);
-  flopenr #(P.XLEN) HENVCFGreg(clk, reset, WriteHENVCFGM, CSRWriteValM, HENVCFG_REGW);
-  flopenr #(P.XLEN) HENVCFGHreg(clk, reset, WriteHENVCFGHM, CSRWriteValM, HENVCFGH_REGW);
-  flopenr #(P.XLEN) HTIMEDELTAreg(clk, reset, WriteHTIMEDELTAM, CSRWriteValM, HTIMEDELTA_REGW);
+  flopenr #(32) HCOUNTERENreg(clk, reset, WriteHCOUNTERENM, CSRWriteValM[31:0], HCOUNTEREN_REGW);
+  if (P.XLEN == 64) begin : henvcfg_regs_64
+    flopenr #(P.XLEN) HENVCFGreg(clk, reset, WriteHENVCFGM, {32'b0, CSRWriteValM[31:0]}, HENVCFG_REGW);
+  end else begin : henvcfg_regs_32
+    flopenr #(P.XLEN) HENVCFGreg(clk, reset, WriteHENVCFGM, CSRWriteValM, HENVCFG_REGW[31:0]);
+    flopenr #(P.XLEN) HENVCFGHreg(clk, reset, WriteHENVCFGHM, CSRWriteValM, HENVCFG_REGW[63:32]);
+  end
+  if (P.XLEN == 64) begin : htimedelta_regs_64
+    flopenr #(P.XLEN) HTIMEDELTAreg(clk, reset, WriteHTIMEDELTAM, CSRWriteValM, HTIMEDELTA_REGW);
+  end else begin : htimedelta_regs_32
+    flopenr #(P.XLEN) HTIMEDELTAreg(clk, reset, WriteHTIMEDELTAM, CSRWriteValM, HTIMEDELTA_REGW[31:0]);
+    flopenr #(P.XLEN) HTIMEDELTAHreg(clk, reset, WriteHTIMEDELTAHM, CSRWriteValM, HTIMEDELTA_REGW[63:32]);
+  end
+  flopenr #(P.XLEN) HGEIPreg(clk, reset, WriteHGEIPM, CSRWriteValM, HGEIP_REGW);
 
 
   // CSR Read and Illegal Access Logic
@@ -188,19 +191,30 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
     CSRHReadValM = '0;
     IllegalCSRHAccessM = 1'b0;
 
-    if (~LegalHAccess) begin : illegalaccess
+    if (~LegalHAccessM) begin : illegalaccess
       IllegalCSRHAccessM = 1'b1;
-    end else begin : legalacess_mux
+    end else begin : legalaccess_mux
       case (CSRAdrM)
         HSTATUS:    CSRHReadValM = HSTATUS_REGW;
         HEDELEG:    CSRHReadValM = HEDELEG_REGW;
         HIDELEG:    CSRHReadValM = HIDELEG_REGW;
         HIE:        CSRHReadValM = HIE_REGW;
-        HTIMEDELTA: CSRHReadValM = HTIMEDELTA_REGW;
-        HCOUNTEREN: CSRHReadValM = HCOUNTEREN_REGW;
+        HTIMEDELTA: CSRHReadValM = HTIMEDELTA_REGW[P.XLEN-1:0];
+        HTIMEDELTAH: if (P.XLEN == 32)
+                       CSRHReadValM = HTIMEDELTA_REGW[63:32];
+                     else begin
+                       CSRHReadValM = '0;
+                       IllegalCSRHAccessM = 1'b1;
+                     end
+        HCOUNTEREN: CSRHReadValM = {{P.XLEN-32){1'b0}}, HCOUNTEREN_REGW};
         HGEIE:      CSRHReadValM = HGEIE_REGW;
-        HENVCFG:    CSRHReadValM = HENVCFG_REGW;
-        HENVCFGH:   CSRHReadValM = HENVCFGH_REGW; // Only exists for RV32, reads 0 for RV64
+        HENVCFG:    CSRHReadValM = HENVCFG_REGW[P.XLEN-1:0];
+        HENVCFGH:   if (P.XLEN == 32)
+                      CSRHReadValM = HENVCFG_REGW[63:32];
+                    else begin
+                      CSRHReadValM = '0;
+                      IllegalCSRHAccessM = 1'b1;
+                    end
         HEPC:       CSRHReadValM = HEPC_REGW;
         HCAUSE:     CSRHReadValM = HCAUSE_REGW;
         HTVAL:      CSRHReadValM = HTVAL_REGW;
@@ -208,7 +222,8 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
         HVIP:       CSRHReadValM = {{(P.XLEN-12){1'b0}}, HVIP_REGW};
         HTINST:     CSRHReadValM = HTINST_REGW;
         HGATP:      CSRHReadValM = HGATP_REGW;
-        default:    CSRHReadValM = '0; // Access to non-existent CSR reads 0
+        HGEIP:      CSRHReadValM = HGEIP_REGW;
+        default:    IllegalCSRHAccessM = 1'b1;
       endcase
 
       if (CSRHWriteM && ReadOnlyCSR) begin

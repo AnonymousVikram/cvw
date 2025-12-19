@@ -64,18 +64,15 @@ module privmode import cvw::*;  #(parameter cvw_t P) (
   if (P.H_SUPPORTED) begin:virtmode
     always_comb begin
       NextVirtModeM = VirtModeW;
-      if (TrapM) begin
-        if (TrapToVS)  NextVirtModeM = 1'b1;
-        else           NextVirtModeM = 1'b0;
-      end else if (mretM) begin
+      if (TrapM)
+        NextVirtModeM = TrapToVS;
+      else if (mretM)
         NextVirtModeM = MSTATUS_MPV;
-      end else if (sretM) begin
-        NextVirtModeM = (VirtModeW == 1'b0) ? HSTATUS_SPV : 1'b1;
-      end
+      else if (sretM)
+        NextVirtModeM = HSTATUS_SPV | VirtModeW;
     end
 
-    flopenl #(1) virtmodereg(clk, reset, ~StallW, NextVirtModeM, 1'b0, VirtModeW);
-
+    flopenr #(1) virtmodereg(clk, reset, ~StallW, NextVirtMOdeM, VirtModeW);
   end else begin
     assign NextVirtModeM = 1'b0;
     assign VirtModeW     = 1'b0;
