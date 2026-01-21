@@ -35,8 +35,11 @@ module trap import cvw::*;  #(parameter cvw_t P) (
   input  logic                 LoadPageFaultM, StoreAmoPageFaultM,              // various trap sources
   input  logic                 wfiM, wfiW,                                      // wait for interrupt instruction
   input  logic [1:0]           PrivilegeModeW,                                  // current privilege mode
+  input  logic                 VirtModeW,                                       // current V
   input  logic [11:0]          MIP_REGW, MIE_REGW, MIDELEG_REGW,                // interrupt pending, enabled, and delegate CSRs
   input  logic [15:0]          MEDELEG_REGW,                                    // exception delegation SR
+  input  logic [63:0]          HEDELEG_REGW,                                    // HS->VS exception delegation
+  input  logic [11:0]          HIDELEG_REGW,                                    // HS->VS interrupt delegation
   input  logic                 STATUS_MIE, STATUS_SIE,                          // machine/supervisor interrupt enables
   input  logic                 InstrValidM,                                     // current instruction is valid, not flushed
   input  logic                 CommittedM, CommittedF,                          // LSU/IFU has committed to a bus operation that can't be interrupted
@@ -53,6 +56,7 @@ module trap import cvw::*;  #(parameter cvw_t P) (
   logic                        Committed;                                       // LSU or IFU has committed to a bus operation that can't be interrupted
   logic                        BothInstrAccessFaultM, BothInstrPageFaultM;      // instruction or HPTW ITLB fill caused an Instruction Access Fault
   logic [11:0]                 PendingIntsM, ValidIntsM, EnabledIntsM;          // interrupts are pending, valid, or enabled
+  logic                        DelegateToVS;                                   // trap delegated from HS to VS
 
   ///////////////////////////////////////////
   // Determine pending enabled interrupts
@@ -72,9 +76,11 @@ module trap import cvw::*;  #(parameter cvw_t P) (
   // wfiW is to support possible but unlikely back to back wfi instructions. wfiM would be high in the M stage, while also in the W stage.
   assign DelegateM     = P.S_SUPPORTED & (InterruptM ? MIDELEG_REGW[CauseM] : MEDELEG_REGW[CauseM]) &
                      (PrivilegeModeW == P.U_MODE | PrivilegeModeW == P.S_MODE);
+  assign DelegateToVS  = P.H_SUPPORTED & VirtModeW & DelegateM &
+                         (InterruptM ? HIDELEG_REGW[CauseM] : HEDELEG_REGW[CauseM]);
 
-  assign TrapToVS = 1'b0; // until hedeleg/hideleg are implemented
-  assign TrapToHS = DelegateM;
+  assign TrapToVS = DelegateToVS;
+  assign TrapToHS = DelegateM & ~TrapToVS;
   assign TrapToM  = TrapM & ~TrapToHS & ~TrapToVS; // and not VS
 
   ///////////////////////////////////////////

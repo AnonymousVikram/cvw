@@ -103,6 +103,8 @@ module privileged import cvw::*;  #(parameter cvw_t P) (
   logic [3:0]               CauseM;                                         // trap cause
   logic [15:0]              MEDELEG_REGW;                                   // exception delegation CSR
   logic [11:0]              MIDELEG_REGW;                                   // interrupt delegation CSR
+  logic [63:0]              HEDELEG_REGW;                                   // HS->VS exception delegation CSR
+  logic [11:0]              HIDELEG_REGW;                                   // HS->VS interrupt delegation CSR
   logic                     sretM, mretM;                                   // supervisor / machine return instruction
   logic                     IllegalCSRAccessM;                              // Illegal access to CSR
   logic                     IllegalIEUFPUInstrM;                            // Illegal IEU or FPU instruction, delayed to Mem stage
@@ -127,9 +129,9 @@ module privileged import cvw::*;  #(parameter cvw_t P) (
   logic                     VirtModeW;       // current V (from privmode)
   /* verilator lint_off UNDRIVEN */
   logic                     MSTATUS_MPV;     // from CSR (prev V for MRET)
+  /* verilator lint_on UNDRIVEN */
   logic                     HSTATUS_SPV;     // from CSR (prev V for SRET in HS)
   logic                     TrapToM, TrapToHS, TrapToVS; // trap target one-hots
-  /* verilator lint_on UNDRIVEN */
 
   // track the current privilege level
   privmode #(P) privmode(.clk, .reset, .StallW, .TrapM, .mretM, .sretM, .DelegateM,
@@ -145,16 +147,16 @@ module privileged import cvw::*;  #(parameter cvw_t P) (
   // Control and Status Registers
   csr #(P) csr(.clk, .reset, .FlushM, .FlushW, .StallE, .StallM, .StallW,
     .InstrM, .InstrOrigM, .PCM, .PCSpillM, .SrcAM, .IEUAdrxTvalM,
-    .CSRReadM, .CSRWriteM, .TrapM, .mretM, .sretM, .InterruptM,
+    .CSRReadM, .CSRWriteM, .TrapM, .TrapToM, .TrapToHS, .TrapToVS, .mretM, .sretM, .InterruptM,
     .MTimerInt, .MExtInt, .SExtInt, .MSwInt,
     .MTIME_CLINT, .InstrValidM, .FRegWriteM, .LoadStallD, .StoreStallD,
     .BPDirWrongM, .BTAWrongM, .RASPredPCWrongM, .BPWrongM,
     .sfencevmaM, .ExceptionM, .InvalidateICacheM, .ICacheStallF, .DCacheStallM, .DivBusyE, .FDivBusyE,
     .IClassWrongM, .IClassM, .DCacheMiss, .DCacheAccess, .ICacheMiss, .ICacheAccess,
-    .NextPrivilegeModeM, .PrivilegeModeW, .NextVirtModeM, .VirtModeW, .CauseM, .SelHPTW,
+    .NextPrivilegeModeM, .PrivilegeModeW, .VirtModeW, .CauseM, .SelHPTW,
     .STATUS_MPP, .STATUS_SPP, .STATUS_TSR, .STATUS_TVM,
     .STATUS_MIE, .STATUS_SIE, .STATUS_MXR, .STATUS_SUM, .STATUS_MPRV, .STATUS_TW, .STATUS_FS,
-    .MEDELEG_REGW, .MIP_REGW, .MIE_REGW, .MIDELEG_REGW,
+    .HSTATUS_SPV, .MEDELEG_REGW, .HEDELEG_REGW, .HIDELEG_REGW, .MIP_REGW, .MIE_REGW, .MIDELEG_REGW,
     .SATP_REGW, .PMPCFG_ARRAY_REGW, .PMPADDR_ARRAY_REGW,
     .SetFflagsM, .FRM_REGW, .ENVCFG_CBE, .ENVCFG_PBMTE, .ENVCFG_ADUE,
     .EPCM, .TrapVectorM,
@@ -170,8 +172,8 @@ module privileged import cvw::*;  #(parameter cvw_t P) (
     .InstrMisalignedFaultM, .InstrAccessFaultM, .HPTWInstrAccessFaultM, .HPTWInstrPageFaultM, .IllegalInstrFaultM,
     .BreakpointFaultM, .LoadMisalignedFaultM, .StoreAmoMisalignedFaultM,
     .LoadAccessFaultM, .StoreAmoAccessFaultM, .EcallFaultM, .InstrPageFaultM,
-    .LoadPageFaultM, .StoreAmoPageFaultM, .PrivilegeModeW,
-    .MIP_REGW, .MIE_REGW, .MIDELEG_REGW, .MEDELEG_REGW, .STATUS_MIE, .STATUS_SIE,
+    .LoadPageFaultM, .StoreAmoPageFaultM, .PrivilegeModeW, .VirtModeW,
+    .MIP_REGW, .MIE_REGW, .MIDELEG_REGW, .MEDELEG_REGW, .HEDELEG_REGW, .HIDELEG_REGW, .STATUS_MIE, .STATUS_SIE,
     .InstrValidM, .CommittedM, .CommittedF,
     .TrapM, .wfiM, .wfiW, .InterruptM, .ExceptionM, .IntPendingM, .DelegateM, .CauseM,
     .TrapToM, .TrapToHS, .TrapToVS);

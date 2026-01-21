@@ -40,6 +40,7 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   input  logic [P.XLEN-1:0]        SrcAM, IEUAdrxTvalM,       // SrcA and memory address from IEU
   input  logic                     CSRReadM, CSRWriteM,       // read or write CSR
   input  logic                     TrapM,                     // trap is occurring
+  input  logic                     TrapToM, TrapToHS, TrapToVS,// resolved trap target
   input  logic                     mretM, sretM,              // return instruction
   input  logic                     InterruptM,                // interrupt is occurring
   input  logic                     ExceptionM,                // interrupt is occurring
@@ -52,7 +53,6 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   input  logic [4:0]               SetFflagsM,                // Set floating point flag bits in FCSR
   input  logic [1:0]               NextPrivilegeModeM,        // STATUS bits updated based on next privilege mode
   input  logic [1:0]               PrivilegeModeW,            // current privilege mode
-  input  logic                     NextVirtModeM,             // next V Bit
   input  logic                     VirtModeW,                 // current V Bit
   input  logic [3:0]               CauseM,                    // Trap cause
   input  logic                     SelHPTW,                   // hardware page table walker active, so base endianness on supervisor mode
@@ -77,7 +77,10 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   // outputs from CSRs
   output logic [1:0]               STATUS_MPP,
   output logic                     STATUS_SPP, STATUS_TSR, STATUS_TVM,
+  output logic                     HSTATUS_SPV,
   output logic [15:0]              MEDELEG_REGW,
+  output logic [63:0]              HEDELEG_REGW,
+  output logic [11:0]              HIDELEG_REGW,
   output logic [P.XLEN-1:0]        SATP_REGW,
   output logic [11:0]              MIP_REGW, MIE_REGW, MIDELEG_REGW,
   output logic                     STATUS_MIE, STATUS_SIE,
@@ -109,6 +112,8 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   logic [P.XLEN-1:0]       MSTATUS_REGW, SSTATUS_REGW, MSTATUSH_REGW;
   logic [P.XLEN-1:0]       STVEC_REGW, MTVEC_REGW;
   logic [P.XLEN-1:0]       MEPC_REGW, SEPC_REGW;
+  logic [P.XLEN-1:0]       VSTVEC_REGW, VSEPC_REGW;
+  logic [P.XLEN-1:0]       SEPCSelM, STVecSelM;
   logic [31:0]             MCOUNTINHIBIT_REGW, MCOUNTEREN_REGW, SCOUNTEREN_REGW;
   logic                    WriteMSTATUSM, WriteMSTATUSHM, WriteSSTATUSM;
   logic                    CSRMWriteM, CSRSWriteM, CSRUWriteM;
@@ -116,18 +121,19 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   logic                    WriteFRMM, SetOrWriteFFLAGSM;
   logic [P.XLEN-1:0]       UnalignedNextEPCM, NextEPCM, NextMtvalM;
   logic [4:0]              NextCauseM;
-  logic [11:0]             CSRAdrM;
+  logic [11:0]             CSRAdrM_In, CSRAdrM;
   logic                    IllegalCSRCAccessM, IllegalCSRMAccessM, IllegalCSRSAccessM, IllegalCSRUAccessM;
   logic                    InsufficientCSRPrivilegeM;
   logic                    IllegalCSRMWriteReadonlyM;
   logic [P.XLEN-1:0]       CSRReadVal2M;
   logic [11:0]             MIP_REGW_writeable;
   logic [P.XLEN-1:0]       TVecM,NextFaultMtvalM;
-  logic                    MTrapM, STrapM;
+  logic                    MTrapM, STrapM, HSTrapM, VSTrapM;
   logic                    SelMtvecM;
   logic [P.XLEN-1:0]       TVecAlignedM;
   logic                    InstrValidNotFlushedM;
   logic                    STimerInt;
+  logic                    PrivReturnHSM, PrivReturnVSM;
   logic [63:0]             MENVCFG_REGW;
   logic [P.XLEN-1:0]       SENVCFG_REGW;
   logic                    ENVCFG_STCE; // supervisor timer counter enable
@@ -153,9 +159,10 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   // Trap Vectoring & Returns; vectored traps must be aligned to 64-byte address boundaries
   ///////////////////////////////////////////
 
-  // Select trap vector from STVEC or MTVEC and word-align
-  assign SelMtvecM = (NextPrivilegeModeM == P.M_MODE);
-  mux2 #(P.XLEN) tvecmux(STVEC_REGW, MTVEC_REGW, SelMtvecM, TVecM);
+  // Select trap vector from VS/HS STVEC or MTVEC and word-align
+  assign SelMtvecM = TrapToM;
+  assign STVecSelM = TrapToVS ? VSTVEC_REGW : STVEC_REGW;
+  mux2 #(P.XLEN) tvecmux(STVecSelM, MTVEC_REGW, SelMtvecM, TVecM);
   assign TVecAlignedM = {TVecM[P.XLEN-1:2], 2'b00};
 
   // Support vectored interrupts
@@ -170,8 +177,9 @@ module csr import cvw::*;  #(parameter cvw_t P) (
 
   // Trap Returns
   // A trap sets the PC to TrapVector
-  // A return sets the PC to MEPC or SEPC
-  mux2 #(P.XLEN) epcmux(SEPC_REGW, MEPC_REGW, mretM, EPCM);
+  // A return sets the PC to MEPC or SEPC/VSEPC (HS sret uses SPV to pick VSEPC)
+  assign SEPCSelM = (VirtModeW | (PrivReturnHSM & HSTATUS_SPV)) ? VSEPC_REGW : SEPC_REGW;
+  mux2 #(P.XLEN) epcmux(SEPCSelM, MEPC_REGW, mretM, EPCM);
 
   ///////////////////////////////////////////
   // CSRWriteValM
@@ -201,7 +209,10 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   // CSR Write values
   ///////////////////////////////////////////
 
-  assign CSRAdrM = InstrM[31:20];
+  assign CSRAdrM_In = InstrM[31:20];
+  // In VS-mode, map S-level CSR addresses to the VS CSR space (offset by 0x100)
+  assign CSRAdrM = (VirtModeW & (PrivilegeModeW == P.S_MODE) & (CSRAdrM_In[9:8] == 2'b01)) ?
+                   (CSRAdrM_In + 12'h100) : CSRAdrM_In;
   assign UnalignedNextEPCM = TrapM ? PCM : CSRWriteValM;
   assign NextEPCM = P.ZCA_SUPPORTED ? {UnalignedNextEPCM[P.XLEN-1:1], 1'b0} : {UnalignedNextEPCM[P.XLEN-1:2], 2'b00}; // 3.1.15 alignment
   assign NextCauseM = TrapM ? {InterruptM, CauseM}: {CSRWriteValM[P.XLEN-1], CSRWriteValM[3:0]};
@@ -209,12 +220,14 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   assign UngatedCSRMWriteM = CSRWriteM & (PrivilegeModeW == P.M_MODE);
   assign CSRMWriteM = UngatedCSRMWriteM & InstrValidNotFlushedM;
   assign CSRSWriteM = CSRWriteM & (|PrivilegeModeW) & InstrValidNotFlushedM;
-  assign CSRHWriteM = CSRWriteM & (PrivilegeModeW == P.S_MODE & ~VirtModeW) & InstrValidNotFlushedM & P.H_SUPPORTED;
+  assign CSRHWriteM = CSRWriteM & (PrivilegeModeW != P.U_MODE) & InstrValidNotFlushedM & P.H_SUPPORTED;
   assign CSRUWriteM = CSRWriteM  & InstrValidNotFlushedM;
-  assign MTrapM = TrapM & (NextPrivilegeModeM == P.M_MODE);
-  assign STrapM = TrapM & (NextPrivilegeModeM == P.S_MODE) & P.S_SUPPORTED;
-  assign HSTrapM = TrapM & (NextPrivilegeModeM == P.S_MODE & ~VirtModeW) & P.H_SUPPORTED;
+  assign MTrapM = TrapM & TrapToM;
+  assign STrapM = TrapM & TrapToHS & P.S_SUPPORTED;
+  assign HSTrapM = TrapM & TrapToHS & P.H_SUPPORTED;
+  assign VSTrapM = TrapM & TrapToVS & P.H_SUPPORTED;
   assign PrivReturnHSM = sretM & (PrivilegeModeW == P.S_MODE & ~VirtModeW) & P.H_SUPPORTED;
+  assign PrivReturnVSM = sretM & (PrivilegeModeW == P.S_MODE &  VirtModeW) & P.H_SUPPORTED;
   assign NextMtinstM = 0; // not implemented; TODO: add module to transform appropriate instructions
   assign NextHtinstM = 0; // not implemented; TODO: add module to transform appropriate instructions
   assign NextMtval2M = 0; // not implemented; TODO: add module to transform appropriate instructions
@@ -276,8 +289,6 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   logic [P.XLEN-1:0] CSRHReadValM;
   logic IllegalCSRHAccessM;
 
-  logic HSTrapM;
-  logic PrivReturnHSM;
   logic [P.XLEN-1:0] NextMtinstM;
   logic [P.XLEN-1:0] NextHtinstM;
   logic [P.XLEN-1:0] NextMtval2M;
@@ -285,14 +296,21 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   if (P.H_SUPPORTED) begin:csrh
     csrh #(P) csrh(.clk, .reset,
       .CSRHWriteM, .CSRAdrM, .CSRWriteValM,
-      .PrivilegeModeW, .NextVirtModeM, .VirtModeW, .MIP_REGW,
-      .HSTrapM, .PrivReturnHSM, .NextEPCM, .NextCauseM, .NextHtvalM(NextMtvalM),
+      .PrivilegeModeW, .VirtModeW, .MIP_REGW,
+      .HSTrapM, .VSTrapM, .PrivReturnHSM, .PrivReturnVSM, .NextEPCM, .NextCauseM,
+      .NextMtvalM, .NextHtvalM(NextMtvalM),
       .NextMtinstM, .NextHtinstM,
       .NextMtval2M,
-      .CSRHReadValM, .IllegalCSRHAccessM);
+      .CSRHReadValM, .IllegalCSRHAccessM,
+      .HSTATUS_SPV, .HEDELEG_REGW, .HIDELEG_REGW, .VSTVEC_REGW, .VSEPC_REGW);
   end else begin: no_csrh
     assign CSRHReadValM = '0;
     assign IllegalCSRHAccessM = 1'b1;
+    assign HSTATUS_SPV = 1'b0;
+    assign HEDELEG_REGW = '0;
+    assign HIDELEG_REGW = '0;
+    assign VSTVEC_REGW = '0;
+    assign VSEPC_REGW = '0;
   end
 
   // Floating Point CSRs in User Mode only needed if Floating Point is supported
@@ -336,13 +354,13 @@ module csr import cvw::*;  #(parameter cvw_t P) (
                                                                        (MENVCFG_REGW[0] & SENVCFG_REGW[0]);
 
   // merge CSR Reads
-  assign CSRReadValM = CSRUReadValM | CSRSReadValM | CSRMReadValM | CSRCReadValM;
+  assign CSRReadValM = CSRUReadValM | CSRSReadValM | CSRMReadValM | CSRCReadValM | CSRHReadValM;
   flopenrc #(P.XLEN) CSRValWReg(clk, reset, FlushW, ~StallW, CSRReadValM, CSRReadValW);
 
   // merge illegal accesses: illegal if none of the CSR addresses is legal or privilege is insufficient
   assign InsufficientCSRPrivilegeM = (CSRAdrM[9:8] == 2'b11 & PrivilegeModeW != P.M_MODE) |
                                      (CSRAdrM[9:8] == 2'b01 & PrivilegeModeW == P.U_MODE);
   assign IllegalCSRAccessM = ((IllegalCSRCAccessM & IllegalCSRMAccessM &
-    IllegalCSRSAccessM & IllegalCSRUAccessM |
+    IllegalCSRSAccessM & IllegalCSRUAccessM & IllegalCSRHAccessM |
     InsufficientCSRPrivilegeM) & CSRReadM) | IllegalCSRMWriteReadonlyM;
 endmodule

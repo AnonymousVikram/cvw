@@ -32,29 +32,40 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
   input  logic [11:0]       CSRAdrM,
   input  logic [P.XLEN-1:0] CSRWriteValM,
   input  logic [1:0]        PrivilegeModeW,   // Current privilege mode (U, S, M)
-  input  logic              NextVirtModeM,    // Next V-mode bit (for hstatus.SPV)
   input  logic              VirtModeW,        // Virtualization mode (VS/VU)
   input  logic [11:0]       MIP_REGW,         // mip register for HIP calculation
 
   input  logic              HSTrapM,          // Trap occurred in HS-mode
+  input  logic              VSTrapM,          // Trap occurred in VS-mode
   input  logic              PrivReturnHSM,    // Privilege return (sret) from HS-mode
+  input  logic              PrivReturnVSM,    // Privilege return (sret) from VS-mode
+  input  logic [P.XLEN-1:0] NextEPCM,         // EPC value for trap/return
+  input  logic [4:0]        NextCauseM,       // Exception/interrupt cause
+  input  logic [P.XLEN-1:0] NextMtvalM,       // Value for {v,s,}tval on trap
   input  logic [P.XLEN-1:0] NextHtvalM,       // Value for htval on trap
   input  logic [P.XLEN-1:0] NextMtinstM,      // Value for mtinst on trap
   input  logic [P.XLEN-1:0] NextHtinstM,      // Value for htinst on trap
   input  logic [P.XLEN-1:0] NextMtval2M,      // Value for mtval2 on trap
 
   output logic [P.XLEN-1:0] CSRHReadValM,
-  output logic              IllegalCSRHAccessM
+  output logic              IllegalCSRHAccessM,
+  output logic              HSTATUS_SPV,
+  output logic [63:0]       HEDELEG_REGW,
+  output logic [11:0]       HIDELEG_REGW,
+  output logic [P.XLEN-1:0] VSTVEC_REGW,
+  output logic [P.XLEN-1:0] VSEPC_REGW
 );
 
   logic [P.XLEN-1:0] MTINST_REGW;
-  logic [P.XlEN-1:0] MTVAL2_REGW;
+  logic [P.XLEN-1:0] MTVAL2_REGW;
   logic [P.XLEN-1:0] HSTATUS_REGW;
-  logic [P.XLEN-1:0] VSTATUS_REGW;
-  logic [63:0] HEDELEG_REGW;
-  logic [P.XLEN-1:0] HIDELEG_REGW;
+  logic [P.XLEN-1:0] VSSTATUS_REGW;
+  logic              VSSTATUS_SD, VSSTATUS_MXR, VSSTATUS_SUM;
+  logic              VSSTATUS_MXR_INT, VSSTATUS_SUM_INT;
+  logic              VSSTATUS_SPIE, VSSTATUS_SIE, VSSTATUS_SPP, VSSTATUS_UBE;
+  logic [1:0]        VSSTATUS_FS_INT, VSSTATUS_FS, VSSTATUS_XS, VSSTATUS_UXL;
   logic [P.XLEN-1:0] HIE_REGW;
-  logic [P.XLEN-1:0] VSIE_REGW;
+  logic [11:0]       VSIE_REGW;
   logic [63:0] HTIMEDELTA_REGW;
   logic [31:0]       HCOUNTEREN_REGW;
   logic [P.XLEN-1:0] HGEIE_REGW;
@@ -62,14 +73,12 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
   logic [P.XLEN-1:0] HTVAL_REGW;
   logic [P.XLEN-1:0] VSTVAL_REGW;
   logic [P.XLEN-1:0] HIP_REGW;
-  logic [P.XLEN-1:0] VSIP_REGW;
+  logic [11:0]       VSIP_REGW;
   logic [11:0]       HVIP_REGW; // 12 bits due to top bits being 0
   logic [P.XLEN-1:0] HTINST_REGW;
   logic [P.XLEN-1:0] HGATP_REGW;
   logic [P.XLEN-1:0] HGEIP_REGW;
-  logic [P.XLEN-1:0] VSTVEC_REGW;
   logic [P.XLEN-1:0] VSSCRATCH_REGW;
-  logic [P.XLEN-1:0] VSEPC_REGW;
   logic [P.XLEN-1:0] VSCAUSE_REGW;
   logic [P.XLEN-1:0] VSATP_REGW;
   logic [63:0] VSTIMECMP_REGW;
@@ -105,6 +114,8 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
   localparam VSATP      = 12'h280;
   localparam VSTIMECMP  = 12'h24D;
   localparam VSTIMECMPH = 12'h25D;
+  localparam [63:0] HEDELEG_MASK = 64'h0000_0000_0000_FFFF;
+  localparam [11:0] HIDELEG_MASK = 12'hFFF;
 
   // Write Enables for CSR instructions
   logic WriteMTINSTM;
@@ -134,53 +145,73 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
   logic [P.XLEN-1:0] NextHSTATUS;
   logic [P.XLEN-1:0] NextHTVAL;
   logic [P.XLEN-1:0] NextHTINST;
+  logic [63:0]       NextHEDELEG;
+  logic [11:0]       NextHIDELEG;
+  logic [P.XLEN-1:0] VSTVECWriteValM;
 
   // CSR Write Validation Intermediates
   logic LegalHAccessM;
+  logic LegalVSAccessM;
+  logic IsHCSR, IsVSCSR;
   logic ReadOnlyCSR;
-  logic ValidWrite;
+  logic ValidHWrite, ValidVSWrite;
 
   // H-CSRs are accessible in M-Mode or HS-Mode.
-  // HS-Mode is S-Mode when VirtModeW is 0.
-  // Access is ILLEGAL in U-Mode (U/VU) and VS-Mode (S-Mode when VirtModeW=1).
+  // VS-CSRs are accessible in M-Mode, HS-Mode, and VS-Mode.
+  // Access is ILLEGAL in U-Mode (U/VU), and H-CSRs are illegal in VS-Mode.
   assign LegalHAccessM = (PrivilegeModeW == P.M_MODE) |
                         ((PrivilegeModeW == P.S_MODE) & ~VirtModeW);
+  assign LegalVSAccessM = (PrivilegeModeW == P.M_MODE) |
+                          (PrivilegeModeW == P.S_MODE);
+
+  assign IsHCSR = (CSRAdrM == MTINST) | (CSRAdrM == MTVAL2) | (CSRAdrM == HSTATUS) |
+                  (CSRAdrM == HEDELEG) | (CSRAdrM == HEDELEGH) | (CSRAdrM == HIDELEG) |
+                  (CSRAdrM == HIE) | (CSRAdrM == HTIMEDELTA) | (CSRAdrM == HTIMEDELTAH) |
+                  (CSRAdrM == HCOUNTEREN) | (CSRAdrM == HGEIE) | (CSRAdrM == HENVCFG) |
+                  (CSRAdrM == HENVCFGH) | (CSRAdrM == HTVAL) | (CSRAdrM == HIP) |
+                  (CSRAdrM == HVIP) | (CSRAdrM == HTINST) | (CSRAdrM == HGATP) |
+                  (CSRAdrM == HGEIP);
+  assign IsVSCSR = (CSRAdrM == VSSTATUS) | (CSRAdrM == VSIE) | (CSRAdrM == VSTVEC) |
+                   (CSRAdrM == VSSCRATCH) | (CSRAdrM == VSEPC) | (CSRAdrM == VSCAUSE) |
+                   (CSRAdrM == VSTVAL) | (CSRAdrM == VSIP) | (CSRAdrM == VSATP) |
+                   (CSRAdrM == VSTIMECMP) | (CSRAdrM == VSTIMECMPH);
 
   assign ReadOnlyCSR = (CSRAdrM == HIP);
 
-  assign ValidWrite = CSRHWriteM & LegalHAccessM & ~ReadOnlyCSR;
+  assign ValidHWrite  = CSRHWriteM & LegalHAccessM & IsHCSR & ~ReadOnlyCSR;
+  assign ValidVSWrite = CSRHWriteM & LegalVSAccessM & IsVSCSR;
 
   // Write enables for each CSR (from CSR instruction)
-  assign WriteMTINSTM     = ValidWrite & (CSRAdrM == MTINST);
-  assign WriteMTVAL2M     = ValidWrite & (CSRAdrM == MTVAL2);
-  assign WriteHSTATUSM    = ValidWrite & (CSRAdrM == HSTATUS);
-  assign WriteVSSTATUS    = ValidWrite & (CSRAdrM == VSSTATUS);
-  assign WriteHEDELEGM    = ValidWrite & (CSRAdrM == HEDELEG);
-  assign WriteHEDELEGHM   = (P.XLEN == 32) & (ValidWrite & (CSRAdrM == HEDELEGH));
-  assign WriteHIDELEGM    = ValidWrite & (CSRAdrM == HIDELEG);
-  assign WriteHIEM        = ValidWrite & (CSRAdrM == HIE);
-  assign WriteVSIEM       = ValidWrite & (CSRAdrM == VSIE);
-  assign WriteHTIMEDELTAM = ValidWrite & (CSRAdrM == HTIMEDELTA);
-  assign WriteHTIMEDELTAHM = (P.XLEN == 32) & (ValidWrite & (CSRAdrM == HTIMEDELTAH));
-  assign WriteHCOUNTERENM = ValidWrite & (CSRAdrM == HCOUNTEREN);
-  assign WriteHGEIEM      = ValidWrite & (CSRAdrM == HGEIE);
-  assign WriteHENVCFGM    = ValidWrite & (CSRAdrM == HENVCFG);
-  assign WriteHENVCFGHM   = (P.XLEN == 32) & (ValidWrite & (CSRAdrM == HENVCFGH));
-  assign WriteHTVALM      = ValidWrite & (CSRAdrM == HTVAL);
-  assign WriteVSTVALM     = ValidWrite & (CSRAdrM == VSTVAL);
-  assign WriteHIPM        = ValidWrite & (CSRAdrM == HIP);
-  assign WriteVSIPM       = ValidWrite & (CSRAdrM == VSIP);
-  assign WriteHVIPM       = ValidWrite & (CSRAdrM == HVIP);
-  assign WriteHTINSTM     = ValidWrite & (CSRAdrM == HTINST);
-  assign WriteHGATPM      = ValidWrite & (CSRAdrM == HGATP);
-  assign WriteHGEIPM      = ValidWrite & (CSRAdrM == HGEIP);
-  assign WriteVSTVECM     = ValidWrite & (CSRAdrM == VSTVEC);
-  assign WriteVSSCRATCHM  = ValidWrite & (CSRAdrM == VSSCRATCH);
-  assign WriteVSEPCM      = ValidWrite & (CSRAdrM == VSEPC);
-  assign WriteVSCAUSEM    = ValidWrite & (CSRAdrM == VSCAUSE);
-  assign WriteVSATPM      = ValidWrite & (CSRAdrM == VSATP);
-  assign WriteVSTIMECMPM  = ValidWrite & (CSRAdrM == VSTIMECMP);
-  assign WriteVSTIMECMPHM = (P.XLEN == 32) & (ValidWrite & (CSRAdrM == VSTIMECMPH));
+  assign WriteMTINSTM     = ValidHWrite & (CSRAdrM == MTINST);
+  assign WriteMTVAL2M     = ValidHWrite & (CSRAdrM == MTVAL2);
+  assign WriteHSTATUSM    = ValidHWrite & (CSRAdrM == HSTATUS);
+  assign WriteVSSTATUS    = ValidVSWrite & (CSRAdrM == VSSTATUS);
+  assign WriteHEDELEGM    = ValidHWrite & (CSRAdrM == HEDELEG);
+  assign WriteHEDELEGHM   = (P.XLEN == 32) & (ValidHWrite & (CSRAdrM == HEDELEGH));
+  assign WriteHIDELEGM    = ValidHWrite & (CSRAdrM == HIDELEG);
+  assign WriteHIEM        = ValidHWrite & (CSRAdrM == HIE);
+  assign WriteVSIEM       = ValidVSWrite & (CSRAdrM == VSIE);
+  assign WriteHTIMEDELTAM = ValidHWrite & (CSRAdrM == HTIMEDELTA);
+  assign WriteHTIMEDELTAHM = (P.XLEN == 32) & (ValidHWrite & (CSRAdrM == HTIMEDELTAH));
+  assign WriteHCOUNTERENM = ValidHWrite & (CSRAdrM == HCOUNTEREN);
+  assign WriteHGEIEM      = ValidHWrite & (CSRAdrM == HGEIE);
+  assign WriteHENVCFGM    = ValidHWrite & (CSRAdrM == HENVCFG);
+  assign WriteHENVCFGHM   = (P.XLEN == 32) & (ValidHWrite & (CSRAdrM == HENVCFGH));
+  assign WriteHTVALM      = ValidHWrite & (CSRAdrM == HTVAL);
+  assign WriteVSTVALM     = ValidVSWrite & (CSRAdrM == VSTVAL);
+  assign WriteHIPM        = ValidHWrite & (CSRAdrM == HIP);
+  assign WriteVSIPM       = ValidVSWrite & (CSRAdrM == VSIP);
+  assign WriteHVIPM       = ValidHWrite & (CSRAdrM == HVIP);
+  assign WriteHTINSTM     = ValidHWrite & (CSRAdrM == HTINST);
+  assign WriteHGATPM      = ValidHWrite & (CSRAdrM == HGATP);
+  assign WriteHGEIPM      = ValidHWrite & (CSRAdrM == HGEIP);
+  assign WriteVSTVECM     = ValidVSWrite & (CSRAdrM == VSTVEC);
+  assign WriteVSSCRATCHM  = ValidVSWrite & (CSRAdrM == VSSCRATCH);
+  assign WriteVSEPCM      = ValidVSWrite & (CSRAdrM == VSEPC);
+  assign WriteVSCAUSEM    = ValidVSWrite & (CSRAdrM == VSCAUSE);
+  assign WriteVSATPM      = ValidVSWrite & (CSRAdrM == VSATP) & P.VIRTMEM_SUPPORTED;
+  assign WriteVSTIMECMPM  = ValidVSWrite & (CSRAdrM == VSTIMECMP) & P.SSTC_SUPPORTED;
+  assign WriteVSTIMECMPHM = (P.XLEN == 32) & P.SSTC_SUPPORTED & (ValidVSWrite & (CSRAdrM == VSTIMECMPH));
 
 
   // MTINST
@@ -191,32 +222,114 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
 
 
   // HSTATUS
-  // This register is written by CSR instructions and by hardware on sret
-  // Three-way mux: CSR write -> CSRWriteValM, sret -> update SPV bit (bit 7), otherwise -> hold
-  assign NextHSTATUS = WriteHSTATUSM ? CSRWriteValM :
-                       PrivReturnHSM ? {HSTATUS_REGW[P.XLEN-1:8], NextVirtModeM, HSTATUS_REGW[6:0]} :
+  // This register is written by CSR instructions and by hardware on traps/returns
+  // SPV captures the prior V on HS traps and clears on HS sret
+  assign NextHSTATUS = HSTrapM       ? {HSTATUS_REGW[P.XLEN-1:8], VirtModeW, HSTATUS_REGW[6:0]} :
+                       PrivReturnHSM ? {HSTATUS_REGW[P.XLEN-1:8], 1'b0,      HSTATUS_REGW[6:0]} :
+                       WriteHSTATUSM ? CSRWriteValM :
                        HSTATUS_REGW;
   flopr #(P.XLEN) HSTATUSreg(clk, reset, NextHSTATUS, HSTATUS_REGW);
+  assign HSTATUS_SPV = HSTATUS_REGW[7];
 
-  // VSSTATUS TODO:Neil implement logic from SSTATUS (Found in csrsr.sv)
+  // VSSTATUS
+  // Guest-visible SSTATUS state, updated on VS traps/returns or CSR writes
+  assign VSSTATUS_MXR = P.S_SUPPORTED & VSSTATUS_MXR_INT;
+  assign VSSTATUS_SUM = P.S_SUPPORTED & P.VIRTMEM_SUPPORTED & VSSTATUS_SUM_INT;
+  assign VSSTATUS_FS  = P.F_SUPPORTED ? VSSTATUS_FS_INT : 2'b00;
+  assign VSSTATUS_XS  = 2'b00;
+  assign VSSTATUS_SD  = (VSSTATUS_FS == 2'b11) | (VSSTATUS_XS == 2'b11);
+  assign VSSTATUS_UXL = P.U_SUPPORTED ? 2'b10 : 2'b00;
 
-  // Exception and Interrupt Delegation Registers TODO: Neil implement
-  // read-only zero bits (see ISA 15.2.2)
-  flopenr #(P.XLEN) HEDELEGreg(clk, reset, WriteHEDELEGM, CSRWriteValM, HEDELEG_REGW);
-  flopenr #(P.XLEN) HIDELEGreg(clk, reset, WriteHIDELEGM, CSRWriteValM, HIDELEG_REGW);
+  if (P.XLEN == 64) begin : vsstatus64
+    assign VSSTATUS_REGW = {VSSTATUS_SD, 29'b0, VSSTATUS_UXL, 12'b0,
+                            VSSTATUS_MXR, VSSTATUS_SUM, 1'b0,
+                            VSSTATUS_XS, VSSTATUS_FS, 4'b0,
+                            VSSTATUS_SPP, 1'b0, VSSTATUS_UBE, VSSTATUS_SPIE,
+                            3'b0, VSSTATUS_SIE, 1'b0};
+  end else begin : vsstatus32
+    assign VSSTATUS_REGW = {VSSTATUS_SD, 11'b0,
+                            VSSTATUS_MXR, VSSTATUS_SUM, 1'b0,
+                            VSSTATUS_XS, VSSTATUS_FS, 4'b0,
+                            VSSTATUS_SPP, 1'b0, VSSTATUS_UBE, VSSTATUS_SPIE,
+                            3'b0, VSSTATUS_SIE, 1'b0};
+  end
+
+  always_ff @(posedge clk)
+    if (reset) begin
+      VSSTATUS_MXR_INT <= 1'b0;
+      VSSTATUS_SUM_INT <= 1'b0;
+      VSSTATUS_FS_INT  <= 2'b00;
+      VSSTATUS_SPP     <= 1'b0;
+      VSSTATUS_SPIE    <= 1'b0;
+      VSSTATUS_SIE     <= 1'b0;
+      VSSTATUS_UBE     <= 1'b0;
+    end else if (VSTrapM) begin
+      VSSTATUS_SPIE <= VSSTATUS_SIE;
+      VSSTATUS_SIE  <= 1'b0;
+      VSSTATUS_SPP  <= PrivilegeModeW[0];
+    end else if (PrivReturnVSM) begin
+      VSSTATUS_SIE  <= VSSTATUS_SPIE;
+      VSSTATUS_SPIE <= 1'b1;
+      VSSTATUS_SPP  <= 1'b0;
+    end else if (WriteVSSTATUS) begin
+      VSSTATUS_MXR_INT <= P.S_SUPPORTED & CSRWriteValM[19];
+      VSSTATUS_SUM_INT <= P.VIRTMEM_SUPPORTED & CSRWriteValM[18];
+      VSSTATUS_FS_INT  <= CSRWriteValM[14:13];
+      VSSTATUS_SPP     <= P.S_SUPPORTED & CSRWriteValM[8];
+      VSSTATUS_SPIE    <= P.S_SUPPORTED & CSRWriteValM[5];
+      VSSTATUS_SIE     <= P.S_SUPPORTED & CSRWriteValM[1];
+      VSSTATUS_UBE     <= P.U_SUPPORTED & P.BIGENDIAN_SUPPORTED & CSRWriteValM[6];
+    end
+
+  // Exception and Interrupt Delegation Registers
+  // Mask off read-only zero bits (see ISA 15.2.2)
+  always_comb begin
+    NextHEDELEG = HEDELEG_REGW;
+    if (WriteHEDELEGM)  NextHEDELEG[31:0]  = CSRWriteValM[31:0] & HEDELEG_MASK[31:0];
+    if (WriteHEDELEGHM) NextHEDELEG[63:32] = CSRWriteValM[31:0] & HEDELEG_MASK[63:32];
+  end
+  flopenr #(64) HEDELEGreg(clk, reset, (WriteHEDELEGM | WriteHEDELEGHM), NextHEDELEG, HEDELEG_REGW);
+
+  assign NextHIDELEG = WriteHIDELEGM ? (CSRWriteValM[11:0] & HIDELEG_MASK) : HIDELEG_REGW;
+  flopenr #(12) HIDELEGreg(clk, reset, WriteHIDELEGM, NextHIDELEG, HIDELEG_REGW);
 
   // Interrupt Enable / Pending
   flopenr #(P.XLEN) HIEreg(clk, reset, WriteHIEM, CSRWriteValM, HIE_REGW);
   flopenr #(12)     HVIPreg(clk, reset, WriteHVIPM, CSRWriteValM[11:0], HVIP_REGW);
   flopenr #(P.XLEN) HGEIEreg(clk, reset, WriteHGEIEM, CSRWriteValM, HGEIE_REGW);
+  flopenr #(12)     VSIEreg(clk, reset, WriteVSIEM, CSRWriteValM[11:0], VSIE_REGW);
+  flopenr #(12)     VSIPreg(clk, reset, WriteVSIPM, CSRWriteValM[11:0], VSIP_REGW);
 
   // HTVAL: Written by CSR instructions and by hardware on traps
   assign NextHTVAL = HSTrapM ? NextHtvalM : CSRWriteValM;
   flopenr #(P.XLEN) HTVALreg(clk, reset, (WriteHTVALM | HSTrapM), NextHTVAL, HTVAL_REGW);
 
   // HTINST: Written by CSR instructions and by hardware on traps
-  assign NextHTINST = HSTrapM ? NextHtinstMinstM : CSRWriteValM;
+  assign NextHTINST = HSTrapM ? NextHtinstM : CSRWriteValM;
   flopenr #(P.XLEN) HTINSTreg(clk, reset, (WriteHTINSTM | HSTrapM), NextHTINST, HTINST_REGW);
+
+  // VS CSRs: Guest-visible S-mode state
+  assign VSTVECWriteValM = CSRWriteValM[0] ? {CSRWriteValM[P.XLEN-1:6], 6'b000001} :
+                                              {CSRWriteValM[P.XLEN-1:2], 2'b00};
+  flopenr #(P.XLEN) VSTVECreg(clk, reset, WriteVSTVECM, VSTVECWriteValM, VSTVEC_REGW);
+  flopenr #(P.XLEN) VSSCRATCHreg(clk, reset, WriteVSSCRATCHM, CSRWriteValM, VSSCRATCH_REGW);
+  flopenr #(P.XLEN) VSEPCreg(clk, reset, (VSTrapM | WriteVSEPCM), NextEPCM, VSEPC_REGW);
+  flopenr #(P.XLEN) VSCAUSEreg(clk, reset, (VSTrapM | WriteVSCAUSEM),
+                              {NextCauseM[4], {(P.XLEN-5){1'b0}}, NextCauseM[3:0]}, VSCAUSE_REGW);
+  flopenr #(P.XLEN) VSTVALreg(clk, reset, (VSTrapM | WriteVSTVALM), NextMtvalM, VSTVAL_REGW);
+  if (P.VIRTMEM_SUPPORTED)
+    flopenr #(P.XLEN) VSATPreg(clk, reset, WriteVSATPM, CSRWriteValM, VSATP_REGW);
+  else
+    assign VSATP_REGW = '0;
+
+  if (P.SSTC_SUPPORTED) begin : vstc
+    if (P.XLEN == 64) begin : vstc64
+      flopenr #(P.XLEN) VSTIMECMPreg(clk, reset, WriteVSTIMECMPM, CSRWriteValM, VSTIMECMP_REGW);
+    end else begin : vstc32
+      flopenr #(P.XLEN) VSTIMECMPreg(clk, reset, WriteVSTIMECMPM, CSRWriteValM, VSTIMECMP_REGW[31:0]);
+      flopenr #(P.XLEN) VSTIMECMPHreg(clk, reset, WriteVSTIMECMPHM, CSRWriteValM, VSTIMECMP_REGW[63:32]);
+    end
+  end else assign VSTIMECMP_REGW = '0;
 
   // Address Translation
   flopenr #(P.XLEN) HGATPreg(clk, reset, WriteHGATPM, CSRWriteValM, HGATP_REGW);
@@ -243,43 +356,60 @@ module csrh import cvw::*;  #(parameter cvw_t P) (
     CSRHReadValM = '0;
     IllegalCSRHAccessM = 1'b0;
 
-    if (~LegalHAccessM) begin : illegalaccess
-      IllegalCSRHAccessM = 1'b1;
-    end else begin : legalaccess_mux
-      case (CSRAdrM)
-        HSTATUS:    CSRHReadValM = HSTATUS_REGW;
-        HEDELEG:    CSRHReadValM = HEDELEG_REGW;
-        HIDELEG:    CSRHReadValM = HIDELEG_REGW;
-        HIE:        CSRHReadValM = HIE_REGW;
-        HTIMEDELTA: CSRHReadValM = HTIMEDELTA_REGW[P.XLEN-1:0];
-        HTIMEDELTAH: if (P.XLEN == 32)
-                       CSRHReadValM = HTIMEDELTA_REGW[63:32];
-                     else begin
-                       CSRHReadValM = '0;
-                       IllegalCSRHAccessM = 1'b1;
-                     end
-        HCOUNTEREN: CSRHReadValM = {{P.XLEN-32){1'b0}}, HCOUNTEREN_REGW};
-        HGEIE:      CSRHReadValM = HGEIE_REGW;
-        HENVCFG:    CSRHReadValM = HENVCFG_REGW[P.XLEN-1:0];
-        HENVCFGH:   if (P.XLEN == 32)
-                      CSRHReadValM = HENVCFG_REGW[63:32];
-                    else begin
-                      CSRHReadValM = '0;
-                      IllegalCSRHAccessM = 1'b1;
-                    end
-        HTVAL:      CSRHReadValM = HTVAL_REGW;
-        HIP:        CSRHReadValM = {{(P.XLEN-12){1'b0}}, (HVIP_REGW | MIP_REGW)}; // Read-only derived value
-        HVIP:       CSRHReadValM = {{(P.XLEN-12){1'b0}}, HVIP_REGW};
-        HTINST:     CSRHReadValM = HTINST_REGW;
-        HGATP:      CSRHReadValM = HGATP_REGW;
-        HGEIP:      CSRHReadValM = HGEIP_REGW;
-        default:    IllegalCSRHAccessM = 1'b1;
-      endcase
+    case (CSRAdrM)
+      HSTATUS:    if (LegalHAccessM) CSRHReadValM = HSTATUS_REGW; else IllegalCSRHAccessM = 1'b1;
+      HEDELEG:    if (LegalHAccessM) CSRHReadValM = HEDELEG_REGW[P.XLEN-1:0]; else IllegalCSRHAccessM = 1'b1;
+      HEDELEGH:   if (LegalHAccessM & (P.XLEN == 32))
+                    CSRHReadValM = HEDELEG_REGW[63:32];
+                  else
+                    IllegalCSRHAccessM = 1'b1;
+      HIDELEG:    if (LegalHAccessM) CSRHReadValM = {{(P.XLEN-12){1'b0}}, HIDELEG_REGW}; else IllegalCSRHAccessM = 1'b1;
+      HIE:        if (LegalHAccessM) CSRHReadValM = HIE_REGW; else IllegalCSRHAccessM = 1'b1;
+      HTIMEDELTA: if (LegalHAccessM) CSRHReadValM = HTIMEDELTA_REGW[P.XLEN-1:0]; else IllegalCSRHAccessM = 1'b1;
+      HTIMEDELTAH: if (LegalHAccessM & (P.XLEN == 32))
+                     CSRHReadValM = HTIMEDELTA_REGW[63:32];
+                   else
+                     IllegalCSRHAccessM = 1'b1;
+      HCOUNTEREN: if (LegalHAccessM) CSRHReadValM = {{(P.XLEN-32){1'b0}}, HCOUNTEREN_REGW}; else IllegalCSRHAccessM = 1'b1;
+      HGEIE:      if (LegalHAccessM) CSRHReadValM = HGEIE_REGW; else IllegalCSRHAccessM = 1'b1;
+      HENVCFG:    if (LegalHAccessM) CSRHReadValM = HENVCFG_REGW[P.XLEN-1:0]; else IllegalCSRHAccessM = 1'b1;
+      HENVCFGH:   if (LegalHAccessM & (P.XLEN == 32))
+                    CSRHReadValM = HENVCFG_REGW[63:32];
+                  else
+                    IllegalCSRHAccessM = 1'b1;
+      HTVAL:      if (LegalHAccessM) CSRHReadValM = HTVAL_REGW; else IllegalCSRHAccessM = 1'b1;
+      HIP:        if (LegalHAccessM)
+                    CSRHReadValM = {{(P.XLEN-12){1'b0}}, (HVIP_REGW | MIP_REGW)}; // Read-only derived value
+                  else
+                    IllegalCSRHAccessM = 1'b1;
+      HVIP:       if (LegalHAccessM) CSRHReadValM = {{(P.XLEN-12){1'b0}}, HVIP_REGW}; else IllegalCSRHAccessM = 1'b1;
+      HTINST:     if (LegalHAccessM) CSRHReadValM = HTINST_REGW; else IllegalCSRHAccessM = 1'b1;
+      HGATP:      if (LegalHAccessM) CSRHReadValM = HGATP_REGW; else IllegalCSRHAccessM = 1'b1;
+      HGEIP:      if (LegalHAccessM) CSRHReadValM = HGEIP_REGW; else IllegalCSRHAccessM = 1'b1;
 
-      if (CSRHWriteM && ReadOnlyCSR) begin
-        IllegalCSRHAccessM = 1'b1;
-      end
-    end
+      VSSTATUS:   if (LegalVSAccessM) CSRHReadValM = VSSTATUS_REGW; else IllegalCSRHAccessM = 1'b1;
+      VSIE:       if (LegalVSAccessM) CSRHReadValM = {{(P.XLEN-12){1'b0}}, VSIE_REGW}; else IllegalCSRHAccessM = 1'b1;
+      VSTVEC:     if (LegalVSAccessM) CSRHReadValM = VSTVEC_REGW; else IllegalCSRHAccessM = 1'b1;
+      VSSCRATCH:  if (LegalVSAccessM) CSRHReadValM = VSSCRATCH_REGW; else IllegalCSRHAccessM = 1'b1;
+      VSEPC:      if (LegalVSAccessM) CSRHReadValM = VSEPC_REGW; else IllegalCSRHAccessM = 1'b1;
+      VSCAUSE:    if (LegalVSAccessM) CSRHReadValM = VSCAUSE_REGW; else IllegalCSRHAccessM = 1'b1;
+      VSTVAL:     if (LegalVSAccessM) CSRHReadValM = VSTVAL_REGW; else IllegalCSRHAccessM = 1'b1;
+      VSIP:       if (LegalVSAccessM) CSRHReadValM = {{(P.XLEN-12){1'b0}}, VSIP_REGW}; else IllegalCSRHAccessM = 1'b1;
+      VSATP:      if (LegalVSAccessM & P.VIRTMEM_SUPPORTED) CSRHReadValM = VSATP_REGW; else IllegalCSRHAccessM = 1'b1;
+      VSTIMECMP:  if (LegalVSAccessM & P.SSTC_SUPPORTED)
+                    CSRHReadValM = VSTIMECMP_REGW[P.XLEN-1:0];
+                  else
+                    IllegalCSRHAccessM = 1'b1;
+      VSTIMECMPH: if (LegalVSAccessM & P.SSTC_SUPPORTED & (P.XLEN == 32))
+                    CSRHReadValM = VSTIMECMP_REGW[63:32];
+                  else
+                    IllegalCSRHAccessM = 1'b1;
+
+      default:    IllegalCSRHAccessM = 1'b1;
+    endcase
+
+    if (CSRHWriteM && ReadOnlyCSR)
+      IllegalCSRHAccessM = 1'b1;
   end
 
 endmodule
