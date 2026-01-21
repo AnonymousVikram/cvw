@@ -215,7 +215,9 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   assign STrapM = TrapM & (NextPrivilegeModeM == P.S_MODE) & P.S_SUPPORTED;
   assign HSTrapM = TrapM & (NextPrivilegeModeM == P.S_MODE & ~VirtModeW) & P.H_SUPPORTED;
   assign PrivReturnHSM = sretM & (PrivilegeModeW == P.S_MODE & ~VirtModeW) & P.H_SUPPORTED;
+  assign NextMtinstM = 0; // not implemented; TODO: add module to transform appropriate instructions
   assign NextHtinstM = 0; // not implemented; TODO: add module to transform appropriate instructions
+  assign NextMtval2M = 0; // not implemented; TODO: add module to transform appropriate instructions
 
   ///////////////////////////////////////////
   // CSRs
@@ -276,14 +278,17 @@ module csr import cvw::*;  #(parameter cvw_t P) (
 
   logic HSTrapM;
   logic PrivReturnHSM;
+  logic [P.XLEN-1:0] NextMtinstM;
   logic [P.XLEN-1:0] NextHtinstM;
+  logic [P.XLEN-1:0] NextMtval2M;
 
   if (P.H_SUPPORTED) begin:csrh
     csrh #(P) csrh(.clk, .reset,
       .CSRHWriteM, .CSRAdrM, .CSRWriteValM,
       .PrivilegeModeW, .NextVirtModeM, .VirtModeW, .MIP_REGW,
       .HSTrapM, .PrivReturnHSM, .NextEPCM, .NextCauseM, .NextHtvalM(NextMtvalM),
-      .NextHtinstM,
+      .NextMtinstM, .NextHtinstM,
+      .NextMtval2M,
       .CSRHReadValM, .IllegalCSRHAccessM);
   end else begin: no_csrh
     assign CSRHReadValM = '0;
