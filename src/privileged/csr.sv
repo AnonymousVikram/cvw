@@ -151,6 +151,12 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   logic [1:0]              VSSTATUS_FS;
   logic                    HSTATUS_VSBE;
   logic [31:0]             HCOUNTEREN_REGW;
+  logic                    CSRHWriteM;
+  logic [P.XLEN-1:0]       CSRHReadValM;
+  logic                    IllegalCSRHAccessM;
+  logic [P.XLEN-1:0]       NextMtinstM;
+  logic [P.XLEN-1:0]       NextHtinstM;
+  logic [P.XLEN-1:0]       NextMtval2M;
 
   // only valid unflushed instructions can access CSRs
   assign InstrValidNotFlushedM = InstrValidM & ~StallW & ~FlushW;
@@ -310,14 +316,6 @@ module csr import cvw::*;  #(parameter cvw_t P) (
     assign STimerInt = '0;
     assign SENVCFG_REGW = '0;
   end
-
-  logic CSRHWriteM;
-  logic [P.XLEN-1:0] CSRHReadValM;
-  logic IllegalCSRHAccessM;
-
-  logic [P.XLEN-1:0] NextMtinstM;
-  logic [P.XLEN-1:0] NextHtinstM;
-  logic [P.XLEN-1:0] NextMtval2M;
 
   if (P.H_SUPPORTED) begin:csrh
     csrh #(P) csrh(.clk, .reset,
