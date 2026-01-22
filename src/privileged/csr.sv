@@ -76,8 +76,11 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   input  logic                     FDivBusyE,                 // floating point divide busy
   // outputs from CSRs
   output logic [1:0]               STATUS_MPP,
+  output logic                     MSTATUS_MPV,
   output logic                     STATUS_SPP, STATUS_TSR, STATUS_TVM,
   output logic                     HSTATUS_SPV,
+  output logic                     HSTATUS_VTSR, HSTATUS_VTW, HSTATUS_VTVM,
+  output logic                     VSSTATUS_SPP,
   output logic [15:0]              MEDELEG_REGW,
   output logic [63:0]              HEDELEG_REGW,
   output logic [11:0]              HIDELEG_REGW,
@@ -110,6 +113,10 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   logic [P.XLEN-1:0]       CSRRWM, CSRRSM, CSRRCM;
   logic [P.XLEN-1:0]       CSRWriteValM;
   logic [P.XLEN-1:0]       MSTATUS_REGW, SSTATUS_REGW, MSTATUSH_REGW;
+  logic                    STATUS_SPP_INT, STATUS_SIE_INT;
+  logic                    STATUS_MXR_INT, STATUS_SUM_INT;
+  logic [1:0]              STATUS_FS_INT;
+  logic                    BigEndianM_Int;
   logic [P.XLEN-1:0]       STVEC_REGW, MTVEC_REGW;
   logic [P.XLEN-1:0]       MEPC_REGW, SEPC_REGW;
   logic [P.XLEN-1:0]       VSTVEC_REGW, VSEPC_REGW;
@@ -138,6 +145,12 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   logic [P.XLEN-1:0]       SENVCFG_REGW;
   logic                    ENVCFG_STCE; // supervisor timer counter enable
   logic                    ENVCFG_FIOM; // fence implies io (presently not used)
+  logic                    TrapGVAM;
+  logic                    VSCSRDirectM;
+  logic                    VSSTATUS_SUM, VSSTATUS_MXR, VSSTATUS_UBE;
+  logic [1:0]              VSSTATUS_FS;
+  logic                    HSTATUS_VSBE;
+  logic [31:0]             HCOUNTEREN_REGW;
 
   // only valid unflushed instructions can access CSRs
   assign InstrValidNotFlushedM = InstrValidM & ~StallW & ~FlushW;
@@ -154,6 +167,16 @@ module csr import cvw::*;  #(parameter cvw_t P) (
       0, 4, 6, 13, 15, 5, 7:  NextFaultMtvalM = IEUAdrxTvalM; // Instruction misaligned, Load/Store Misaligned/page/access faults
       default:                NextFaultMtvalM = '0; // Ecall, interrupts
     endcase
+
+  // Identify traps that write a guest virtual address to {m,s}tval.
+  function automatic logic CauseWritesTval(input logic [3:0] Cause);
+    case (Cause)
+      4'd0, 4'd1, 4'd3, 4'd4, 4'd5, 4'd6, 4'd7, 4'd12, 4'd13, 4'd15: CauseWritesTval = 1'b1;
+      default: CauseWritesTval = 1'b0;
+    endcase
+  endfunction
+
+  assign TrapGVAM = TrapM & ExceptionM & VirtModeW & CauseWritesTval(CauseM);
 
   ///////////////////////////////////////////
   // Trap Vectoring & Returns; vectored traps must be aligned to 64-byte address boundaries
@@ -213,6 +236,8 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   // In VS-mode, map S-level CSR addresses to the VS CSR space (offset by 0x100)
   assign CSRAdrM = (VirtModeW & (PrivilegeModeW == P.S_MODE) & (CSRAdrM_In[9:8] == 2'b01)) ?
                    (CSRAdrM_In + 12'h100) : CSRAdrM_In;
+  // Track direct VS CSR accesses while V=1 (virtual-instruction behavior).
+  assign VSCSRDirectM = VirtModeW & (CSRAdrM_In[9:8] == 2'b10);
   assign UnalignedNextEPCM = TrapM ? PCM : CSRWriteValM;
   assign NextEPCM = P.ZCA_SUPPORTED ? {UnalignedNextEPCM[P.XLEN-1:1], 1'b0} : {UnalignedNextEPCM[P.XLEN-1:2], 2'b00}; // 3.1.15 alignment
   assign NextCauseM = TrapM ? {InterruptM, CauseM}: {CSRWriteValM[P.XLEN-1], CSRWriteValM[3:0]};
@@ -220,7 +245,8 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   assign UngatedCSRMWriteM = CSRWriteM & (PrivilegeModeW == P.M_MODE);
   assign CSRMWriteM = UngatedCSRMWriteM & InstrValidNotFlushedM;
   assign CSRSWriteM = CSRWriteM & (|PrivilegeModeW) & InstrValidNotFlushedM;
-  assign CSRHWriteM = CSRWriteM & (PrivilegeModeW != P.U_MODE) & InstrValidNotFlushedM & P.H_SUPPORTED;
+  // Avoid combinational loops through TrapM/FlushW by gating H CSR writes on InstrValidM.
+  assign CSRHWriteM = CSRWriteM & (PrivilegeModeW != P.U_MODE) & InstrValidM & P.H_SUPPORTED;
   assign CSRUWriteM = CSRWriteM  & InstrValidNotFlushedM;
   assign MTrapM = TrapM & TrapToM;
   assign STrapM = TrapM & TrapToHS & P.S_SUPPORTED;
@@ -243,12 +269,12 @@ module csr import cvw::*;  #(parameter cvw_t P) (
 
   csrsr #(P) csrsr(.clk, .reset, .StallW,
     .WriteMSTATUSM, .WriteMSTATUSHM, .WriteSSTATUSM,
-    .TrapM, .FRegWriteM, .NextPrivilegeModeM, .PrivilegeModeW,
+    .TrapM, .FRegWriteM, .NextPrivilegeModeM, .PrivilegeModeW, .VirtModeW, .TrapGVAM,
     .mretM, .sretM, .WriteFRMM, .SetOrWriteFFLAGSM, .CSRWriteValM, .SelHPTW,
     .MSTATUS_REGW, .SSTATUS_REGW, .MSTATUSH_REGW,
-    .STATUS_MPP, .STATUS_SPP, .STATUS_TSR, .STATUS_TW,
-    .STATUS_MIE, .STATUS_SIE, .STATUS_MXR, .STATUS_SUM, .STATUS_MPRV, .STATUS_TVM,
-    .STATUS_FS, .BigEndianM);
+    .STATUS_MPP, .MSTATUS_MPV, .STATUS_SPP(STATUS_SPP_INT), .STATUS_TSR, .STATUS_TW,
+    .STATUS_MIE, .STATUS_SIE(STATUS_SIE_INT), .STATUS_MXR(STATUS_MXR_INT), .STATUS_SUM(STATUS_SUM_INT),
+    .STATUS_MPRV, .STATUS_TVM, .STATUS_FS(STATUS_FS_INT), .BigEndianM(BigEndianM_Int));
 
   csrm #(P) csrm(.clk, .reset,
     .UngatedCSRMWriteM, .CSRMWriteM, .MTrapM, .CSRAdrM,
@@ -296,21 +322,49 @@ module csr import cvw::*;  #(parameter cvw_t P) (
   if (P.H_SUPPORTED) begin:csrh
     csrh #(P) csrh(.clk, .reset,
       .CSRHWriteM, .CSRAdrM, .CSRWriteValM,
-      .PrivilegeModeW, .VirtModeW, .MIP_REGW,
+      .PrivilegeModeW, .VirtModeW, .FRegWriteM, .WriteFRMM, .SetOrWriteFFLAGSM,
+      .TrapGVAM, .VSCSRDirectM, .MIP_REGW,
       .HSTrapM, .VSTrapM, .PrivReturnHSM, .PrivReturnVSM, .NextEPCM, .NextCauseM,
       .NextMtvalM, .NextHtvalM(NextMtvalM),
       .NextMtinstM, .NextHtinstM,
       .NextMtval2M,
       .CSRHReadValM, .IllegalCSRHAccessM,
-      .HSTATUS_SPV, .HEDELEG_REGW, .HIDELEG_REGW, .VSTVEC_REGW, .VSEPC_REGW);
+      .HSTATUS_SPV, .HSTATUS_VTSR, .HSTATUS_VTW, .HSTATUS_VTVM,
+      .HSTATUS_VSBE, .VSSTATUS_SPP, .VSSTATUS_SUM, .VSSTATUS_MXR, .VSSTATUS_UBE, .VSSTATUS_FS,
+      .HEDELEG_REGW, .HIDELEG_REGW, .HCOUNTEREN_REGW, .VSTVEC_REGW, .VSEPC_REGW);
   end else begin: no_csrh
     assign CSRHReadValM = '0;
     assign IllegalCSRHAccessM = 1'b1;
     assign HSTATUS_SPV = 1'b0;
+    assign HSTATUS_VTSR = 1'b0;
+    assign HSTATUS_VTW = 1'b0;
+    assign HSTATUS_VTVM = 1'b0;
+    assign HSTATUS_VSBE = 1'b0;
+    assign VSSTATUS_SPP = 1'b0;
+    assign VSSTATUS_SUM = 1'b0;
+    assign VSSTATUS_MXR = 1'b0;
+    assign VSSTATUS_UBE = 1'b0;
+    assign VSSTATUS_FS = '0;
     assign HEDELEG_REGW = '0;
     assign HIDELEG_REGW = '0;
+    assign HCOUNTEREN_REGW = '0;
     assign VSTVEC_REGW = '0;
     assign VSEPC_REGW = '0;
+  end
+
+  // Effective status bits for VS-mode
+  assign STATUS_SPP = STATUS_SPP_INT;
+  assign STATUS_SIE = STATUS_SIE_INT;
+  assign STATUS_MXR = (P.H_SUPPORTED & VirtModeW) ? VSSTATUS_MXR : STATUS_MXR_INT;
+  assign STATUS_SUM = (P.H_SUPPORTED & VirtModeW) ? VSSTATUS_SUM : STATUS_SUM_INT;
+  assign STATUS_FS  = (P.H_SUPPORTED & VirtModeW) ? VSSTATUS_FS : STATUS_FS_INT;
+
+  if (P.BIGENDIAN_SUPPORTED) begin: vs_endian
+    logic BigEndianM_VS;
+    assign BigEndianM_VS = (PrivilegeModeW == P.S_MODE) ? HSTATUS_VSBE : VSSTATUS_UBE;
+    assign BigEndianM = (P.H_SUPPORTED & VirtModeW & ~SelHPTW) ? BigEndianM_VS : BigEndianM_Int;
+  end else begin: vs_endian_n
+    assign BigEndianM = 1'b0;
   end
 
   // Floating Point CSRs in User Mode only needed if Floating Point is supported
@@ -334,7 +388,8 @@ module csr import cvw::*;  #(parameter cvw_t P) (
       .IClassM, .DCacheMiss, .DCacheAccess, .ICacheMiss, .ICacheAccess, .sfencevmaM,
       .InterruptM, .ExceptionM, .InvalidateICacheM, .ICacheStallF, .DCacheStallM, .DivBusyE, .FDivBusyE,
       .CSRAdrM, .PrivilegeModeW, .CSRWriteValM,
-      .MCOUNTINHIBIT_REGW, .MCOUNTEREN_REGW, .SCOUNTEREN_REGW,
+      .MCOUNTINHIBIT_REGW, .MCOUNTEREN_REGW, .SCOUNTEREN_REGW, .HCOUNTEREN_REGW,
+      .VirtModeW,
       .MTIME_CLINT,  .CSRCReadValM, .IllegalCSRCAccessM);
   end else begin
     assign CSRCReadValM = '0;

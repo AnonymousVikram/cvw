@@ -54,8 +54,10 @@ module csrc  import cvw::*;  #(parameter cvw_t P) (
   input  logic              FDivBusyE,                                 // floating point divide busy
   input  logic [11:0]       CSRAdrM,
   input  logic [1:0]        PrivilegeModeW,
+  input  logic              VirtModeW,
   input  logic [P.XLEN-1:0] CSRWriteValM,
   input  logic [31:0]       MCOUNTINHIBIT_REGW, MCOUNTEREN_REGW, SCOUNTEREN_REGW,
+  input  logic [31:0]       HCOUNTEREN_REGW,
   input  logic [63:0]       MTIME_CLINT,
   output logic [P.XLEN-1:0] CSRCReadValM,
   output logic              IllegalCSRCAccessM
@@ -73,6 +75,8 @@ module csrc  import cvw::*;  #(parameter cvw_t P) (
   localparam TIMEH            = 12'hC81;
 
   logic [4:0]              CounterNumM;
+  logic                    CounterEnM, SCounterEnM, HCounterEnM;
+  logic                    CounterAllowedM;
   logic [P.XLEN-1:0]       HPMCOUNTER_REGW[P.COUNTERS-1:0];
   logic [P.XLEN-1:0]       HPMCOUNTERH_REGW[P.COUNTERS-1:0];
   logic                    LoadStallE, LoadStallM;
@@ -152,9 +156,24 @@ module csrc  import cvw::*;  #(parameter cvw_t P) (
 
   // Read Counters, or cause excepiton if insufficient privilege in light of COUNTEREN flags
   assign CounterNumM = CSRAdrM[4:0]; // which counter to read?
+  assign CounterEnM = MCOUNTEREN_REGW[CounterNumM];
+  assign SCounterEnM = SCOUNTEREN_REGW[CounterNumM];
+  assign HCounterEnM = HCOUNTEREN_REGW[CounterNumM];
+  always_comb begin
+    CounterAllowedM = 1'b0;
+    if (PrivilegeModeW == P.M_MODE)
+      CounterAllowedM = 1'b1;
+    else if (VirtModeW) begin
+      // In VS/VU, hcounteren further gates counter access.
+      if (PrivilegeModeW == P.S_MODE)
+        CounterAllowedM = CounterEnM & HCounterEnM;
+      else
+        CounterAllowedM = CounterEnM & HCounterEnM & SCounterEnM;
+    end else
+      CounterAllowedM = CounterEnM & (!P.S_SUPPORTED | PrivilegeModeW == P.S_MODE | SCounterEnM);
+  end
   always_comb
-    if (PrivilegeModeW == P.M_MODE |
-        MCOUNTEREN_REGW[CounterNumM] & (!P.S_SUPPORTED | PrivilegeModeW == P.S_MODE | SCOUNTEREN_REGW[CounterNumM])) begin
+    if (CounterAllowedM) begin
       IllegalCSRCAccessM = 1'b0;
       if (CSRAdrM >= MHPMEVENTBASE & CSRAdrM <= MHPMEVENTLAST) begin
         CSRCReadValM = '0; // mphmevent[3:31] tied to read-only zero

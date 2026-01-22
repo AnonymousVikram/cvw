@@ -57,6 +57,8 @@ module trap import cvw::*;  #(parameter cvw_t P) (
   logic                        BothInstrAccessFaultM, BothInstrPageFaultM;      // instruction or HPTW ITLB fill caused an Instruction Access Fault
   logic [11:0]                 PendingIntsM, ValidIntsM, EnabledIntsM;          // interrupts are pending, valid, or enabled
   logic                        DelegateToVS;                                   // trap delegated from HS to VS
+  logic [5:0]                  CauseIdxM;                                      // cause index for 64-bit delegation CSRs
+  logic                        HidelegHit, HedelegHit;
 
   ///////////////////////////////////////////
   // Determine pending enabled interrupts
@@ -76,8 +78,11 @@ module trap import cvw::*;  #(parameter cvw_t P) (
   // wfiW is to support possible but unlikely back to back wfi instructions. wfiM would be high in the M stage, while also in the W stage.
   assign DelegateM     = P.S_SUPPORTED & (InterruptM ? MIDELEG_REGW[CauseM] : MEDELEG_REGW[CauseM]) &
                      (PrivilegeModeW == P.U_MODE | PrivilegeModeW == P.S_MODE);
+  assign CauseIdxM     = {2'b0, CauseM};
+  assign HidelegHit    = HIDELEG_REGW[CauseM];
+  assign HedelegHit    = HEDELEG_REGW[CauseIdxM];
   assign DelegateToVS  = P.H_SUPPORTED & VirtModeW & DelegateM &
-                         (InterruptM ? HIDELEG_REGW[CauseM] : HEDELEG_REGW[CauseM]);
+                         (InterruptM ? HidelegHit : HedelegHit);
 
   assign TrapToVS = DelegateToVS;
   assign TrapToHS = DelegateM & ~TrapToVS;

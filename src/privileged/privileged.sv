@@ -127,21 +127,22 @@ module privileged import cvw::*;  #(parameter cvw_t P) (
     // --- Hypervisor ---
   logic                     NextVirtModeM;   // next V (from privmode)
   logic                     VirtModeW;       // current V (from privmode)
-  /* verilator lint_off UNDRIVEN */
   logic                     MSTATUS_MPV;     // from CSR (prev V for MRET)
-  /* verilator lint_on UNDRIVEN */
   logic                     HSTATUS_SPV;     // from CSR (prev V for SRET in HS)
+  logic                     HSTATUS_VTSR, HSTATUS_VTW, HSTATUS_VTVM;
+  logic                     VSSTATUS_SPP;
   logic                     TrapToM, TrapToHS, TrapToVS; // trap target one-hots
 
   // track the current privilege level
   privmode #(P) privmode(.clk, .reset, .StallW, .TrapM, .mretM, .sretM, .DelegateM,
-    .STATUS_MPP, .STATUS_SPP, .MSTATUS_MPV, .HSTATUS_SPV, .TrapToM, .TrapToHS, .TrapToVS,
+    .STATUS_MPP, .STATUS_SPP, .VSSTATUS_SPP, .MSTATUS_MPV, .HSTATUS_SPV, .TrapToM, .TrapToHS, .TrapToVS,
     .NextPrivilegeModeM, .PrivilegeModeW, .NextVirtModeM, .VirtModeW);
 
   // decode privileged instructions
   privdec #(P) pmd(.clk, .reset, .StallW, .FlushW, .InstrM(InstrM[31:7]),
     .PrivilegedM, .IllegalIEUFPUInstrM, .IllegalCSRAccessM,
-    .PrivilegeModeW, .STATUS_TSR, .STATUS_TVM, .STATUS_TW, .IllegalInstrFaultM,
+    .PrivilegeModeW, .VirtModeW, .STATUS_TSR, .STATUS_TVM, .STATUS_TW,
+    .HSTATUS_VTSR, .HSTATUS_VTVM, .HSTATUS_VTW, .IllegalInstrFaultM,
     .EcallFaultM, .BreakpointFaultM, .sretM, .mretM, .RetM, .wfiM, .wfiW, .sfencevmaM);
 
   // Control and Status Registers
@@ -154,9 +155,10 @@ module privileged import cvw::*;  #(parameter cvw_t P) (
     .sfencevmaM, .ExceptionM, .InvalidateICacheM, .ICacheStallF, .DCacheStallM, .DivBusyE, .FDivBusyE,
     .IClassWrongM, .IClassM, .DCacheMiss, .DCacheAccess, .ICacheMiss, .ICacheAccess,
     .NextPrivilegeModeM, .PrivilegeModeW, .VirtModeW, .CauseM, .SelHPTW,
-    .STATUS_MPP, .STATUS_SPP, .STATUS_TSR, .STATUS_TVM,
+    .STATUS_MPP, .MSTATUS_MPV, .STATUS_SPP, .STATUS_TSR, .STATUS_TVM,
     .STATUS_MIE, .STATUS_SIE, .STATUS_MXR, .STATUS_SUM, .STATUS_MPRV, .STATUS_TW, .STATUS_FS,
-    .HSTATUS_SPV, .MEDELEG_REGW, .HEDELEG_REGW, .HIDELEG_REGW, .MIP_REGW, .MIE_REGW, .MIDELEG_REGW,
+    .HSTATUS_SPV, .HSTATUS_VTSR, .HSTATUS_VTW, .HSTATUS_VTVM, .VSSTATUS_SPP,
+    .MEDELEG_REGW, .HEDELEG_REGW, .HIDELEG_REGW, .MIP_REGW, .MIE_REGW, .MIDELEG_REGW,
     .SATP_REGW, .PMPCFG_ARRAY_REGW, .PMPADDR_ARRAY_REGW,
     .SetFflagsM, .FRM_REGW, .ENVCFG_CBE, .ENVCFG_PBMTE, .ENVCFG_ADUE,
     .EPCM, .TrapVectorM,
