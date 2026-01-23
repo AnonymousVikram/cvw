@@ -5,7 +5,7 @@
 _start:
   # Trap handler for illegal CSR writes.
   la t0, m_trap
-  csrw 0x305, t0
+  csrw mtvec, t0
 
   li s1, 0
 
@@ -13,7 +13,7 @@ _start:
   la s0, hip_write
   li t0, -1
 hip_write:
-  csrw 0x644, t0
+  csrw hip, t0
 hip_after:
   li t1, 1
   bne s1, t1, fail
@@ -22,7 +22,7 @@ hip_after:
   la s0, hgeip_write
   li t0, -1
 hgeip_write:
-  csrw 0xE12, t0
+  csrw hgeip, t0
 hgeip_after:
   li t1, 2
   bne s1, t1, fail
@@ -36,17 +36,17 @@ fail:
 
 m_trap:
   # Expect illegal instruction from read-only CSR write.
-  csrr t0, 0x342
+  csrr t0, mcause
   li t1, 0x7fffffff
   and t0, t0, t1
   li t1, 2
   bne t0, t1, fail
 
   # Ensure the trap came from the expected CSR write.
-  csrr t2, 0x341
+  csrr t2, mepc
   bne t2, s0, fail
 
   addi s1, s1, 1
   addi t2, t2, 4
-  csrw 0x341, t2
+  csrw mepc, t2
   mret
